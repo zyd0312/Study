@@ -13,26 +13,26 @@
 不过这个"结局"有三层复杂性，是本合集真正想讲的东西：
 
 1. **ZK 赢，靠的不是它 2021 年被吹捧的优点。** 当年 ZK 的卖点是"密码学更安全"，而实际让它赢的是**提款延迟**——一个被机构资金效率倒逼出来的、纯商业的理由。
-2. **二分法本身正在瓦解。** "乐观（欺诈证明）vs ZK（有效性证明）"已不再是干净的两分。**ZK 欺诈证明**这类混合方案正在出现（虽然争议很大，见笔记 07）。
+2. **二分法本身正在瓦解。** "乐观（欺诈证明）vs ZK（有效性证明）"已不再是干净的两分。**ZK 欺诈证明**这类混合方案正在出现（虽然争议很大，见 [ZK 笔记 07](../zk/07-ethresearch-zk-fraud-proofs.md)）。
 3. **战场已经转移。** 今天的前沿问题不是"哪种 rollup 更好"，而是"**几十条 rollup 之间怎么才像一条链**"，以及"**rollup 还该不该自己造证明系统**"（native rollups）。
 
 ---
 
 ## 阅读顺序
 
-如果时间有限，**读 01 → 03 → 02** 就能拿到完整故事线（约 30 分钟）。
+如果时间有限，**读 01 → 02** 就能拿到完整故事线（约 20 分钟）。ZK 相关深度内容已移入 [ZK 专题](../zk/README.md)。
 
 | # | 笔记 | 一句话 | 优先级 |
 |---|---|---|---|
 | [01](01-deribit-2021-optimistic-vs-zk.md) | **Deribit 2021：乐观 vs 零知识** | 起点。分析框架至今有效，技术结论已被推翻 | ⭐ 基线 |
 | [02](02-vitalik-2025-scaling-l1-l2.md) | **Vitalik：2025 及以后的 L1/L2 扩容** | 官方路线图。全文**没有再争论**乐观 vs ZK——这本身就是答案 | ⭐ 必读 |
-| [03](03-optimism-succinct-zk.md) | **Optimism × Succinct** | 结局公告。"rollups consolidate around ZK"出自 Optimism 自家博客 | ⭐ 必读 |
 | [04](04-l2beat-native-rollups.md) | **L2BEAT：Native Rollups 综述** | 下一个五年的主线。质量最高的一篇 | ⭐ 推荐 |
 | [05](05-ethresearch-native-rollups.md) | **ethresear.ch：Native Rollups 原始提案** | Justin Drake 的原帖 + 讨论区的一手争论 | 深入 |
 | [06](06-eip-8079.md) | **EIP-8079 规范速查** | ⚠️ Draft 状态，大量 `TBD`，别当成定案 | 速查 |
-| [07](07-ethresearch-zk-fraud-proofs.md) | **ZK 欺诈证明：两全其美？** | 唱反调的一篇。**标题的问号，答案是"不是"** | 深入 |
 | [08](08-l2beat-stages-framework.md) | **L2BEAT Stages 框架** | 安全性辩论如何从"打嘴仗"变成"可核查标准" | ⭐ 推荐 |
 | [09](09-lean-ethereum-roadmap.md) | **Lean Ethereum 路线图** | ⚠️ 与 rollup 的关系被媒体严重误传，见下文 | 参考 |
+
+> 📂 **ZK 专题**（独立目录）: [Optimism × Succinct 结局公告](../zk/03-optimism-succinct-zk.md) · [ZK 欺诈证明争议](../zk/07-ethresearch-zk-fraud-proofs.md) · [ZK-Rollup 核心机制](../zk/10-zk-proving-circuit-deep-dive.md) · [SNARK 数学基础](../zk/01-vitalik-2021-snarks-explained.md)
 
 ---
 
@@ -92,7 +92,7 @@ Vitalik 2025 年那篇的重心已经完全不在"哪种 rollup 好"上了。他
 
 ### 3. 二分法正在瓦解：ZK 欺诈证明
 
-这是本合集里**最该认真读的一篇反面材料**（笔记 07）。
+这是本合集里**最该认真读的一篇反面材料**（[ZK 笔记 07](../zk/07-ethresearch-zk-fraud-proofs.md)）。
 
 思路是走第三条路：既不是给每个区块生成有效性证明（成本高），也不是传统交互式欺诈证明（挑战期长），而是**用 ZK 做非交互式欺诈证明**。代表方案是 Kailua、OP Succinct Lite。
 
@@ -160,3 +160,4 @@ Vitalik 2025 年那篇的重心已经完全不在"哪种 rollup 好"上了。他
 | 07 | https://ethresear.ch/t/best-of-both-worlds-a-measured-review-of-non-interactive-zk-fraud-proofs/23132 |
 | 08 | https://forum.l2beat.com/t/the-stages-framework/291 |
 | 09 | https://leanroadmap.org/ |
+| 10 | https://ethereum.org/developers/docs/scaling/zk-rollups/#how-do-zk-rollups-work |
