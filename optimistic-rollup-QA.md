@@ -406,6 +406,163 @@ block n -> block n+1
 
 FDG 后半段二分的对象就是这些 FPVM 中间状态。
 
+### 15.1 Cannon / op-program / op-challenger 在整个流程里的位置
+
+在 OP Stack 里，Cannon 不是日常出块时运行的主执行引擎。正常路径是：
+
+```text
+sequencer 排序交易
+  -> op-batcher 把 batch 数据提交到 L1
+  -> op-node 从 L1 数据推导 L2 链
+  -> op-geth 执行 L2 交易
+  -> op-proposer 提交 L2 output root
+```
+
+这条路径里，真正执行交易的是 `op-geth`，负责 L1 到 L2 派生的是 `op-node`。Cannon 只在 output root 被争议时进入关键路径：
+
+```text
+proposer 提交 L2 output root
+  -> challenger 发起 dispute
+  -> FDG 二分争议
+  -> 定位到某个 L2 block transition
+  -> 再定位到某一步 FPVM transition
+  -> L1 合约用 Cannon 的单步规则执行 step 裁决
+```
+
+几个概念的关系是：
+
+```text
+op-program：
+Fault Proof Program 的 OP Stack 实现。它负责读取 L1 数据、batch 数据、状态 preimage 等，
+按 OP Stack 规则重新推导并执行 L2，最后计算目标 output root。
+
+Cannon / MTCannon：
+Fault Proof VM。它不懂 Rollup 业务语义，只负责把 op-program 放进 MIPS64 VM 中执行，
+并把执行 trace 拆成 L1 可验证的单步状态转换。
+
+op-challenger：
+参与 dispute 的链下程序。它监控 dispute game，本地运行 trace provider，例如 Cannon，
+生成中间状态、Merkle proof 和最终 step 所需 witness。
+```
+
+因此，Cannon 与“区块中交易是否合规”的关系是间接的：
+
+```text
+交易合规性
+  -> 体现在 OP Stack derivation + execution 规则里
+  -> op-program 重新执行这些规则
+  -> Cannon 证明 op-program 的执行 trace 没有被伪造
+  -> L1 判断 claimed output root 是否正确
+```
+
+L1 最后不会直接检查“某笔交易余额是否足够”或“某个 EVM opcode 是否执行正确”。它只验证一条 MIPS 指令级别的 VM 状态转换。真正理解交易、EVM、deposit、batch、output root 的，是 `op-program` 中实现或复用的 OP Stack 逻辑。
+
+### 15.2 absolutePrestate 与 op-program 的信任边界
+
+`op-program` 的完整代码通常不直接存放在 L1 上。链上 dispute game 认的是一个 `absolutePrestate`：
+
+```text
+absolutePrestate = hash(Cannon VM 的初始状态)
+```
+
+这个初始状态承诺了：
+
+```text
+op-program 的 MIPS64 程序代码
+初始内存
+初始寄存器
+运行时布局
+其他 VM 初始状态
+```
+
+不同 dispute game 可以从同一个 `absolutePrestate` 开始，是因为它固定的是“同一个程序和同一台 VM 的初始状态”，不是固定某个具体区块。每个 game 要验证的区块、claim 和相关数据不同，这些差异通过 game 参数和 `PreimageOracle` 进入程序：
+
+```text
+同一个 absolutePrestate
+  + game A 的 root claim / L2 block number / oracle 数据
+  -> trace A
+
+同一个 absolutePrestate
+  + game B 的 root claim / L2 block number / oracle 数据
+  -> trace B
+```
+
+这类似同一个 `sha256` 程序处理不同文件会得到不同输出。
+
+链上通常保存的不是完整 prestate 文件，而是 `absolutePrestate` 的 hash / claim 值。完整 prestate 文件在链下分发，`op-challenger` 或 Cannon 本地用它恢复初始 VM：
+
+```text
+链上：
+absolutePrestate hash
+
+链下：
+<absolutePrestate hash>.bin.gz
+```
+
+因此，每个 dispute game 逻辑上都从“已经包含 op-program 的初始 VM 内存承诺”开始；但这不是每次都把完整 `op-program` 上传到 L1，也不是链上重新加载程序。链下参与者从 prestate 文件恢复 VM，链上只认起始 hash，并在最后一步验证少量 Merkle witness。
+
+L1 并不检查挑战者本地电脑上的 `op-program` 文件有没有被篡改。L1 只约束：
+
+```text
+dispute trace 必须从链上指定的 absolutePrestate 出发；
+后续每一步必须符合 Cannon 的 VM 状态转换规则。
+```
+
+如果挑战者改了本地 `op-program`，它要么无法匹配链上的起始状态，要么会在后续 trace 中产生某一步非法状态转换。FDG 最终会二分到这一步，再由 L1 的 `step` 验证裁决。
+
+不过需要注意一个边界：
+
+```text
+Cannon / FDG 能保证：
+给定 absolutePrestate 后，这个程序是否被正确执行。
+
+Cannon / FDG 不能保证：
+这个 op-program 本身一定正确、合理、无 bug、无恶意。
+```
+
+`op-program` 本身的合理性来自 OP Stack 规范、开源实现、可复现构建、测试审计、治理批准的版本、链上配置的 `absolutePrestate`，以及 challenger / 节点运营者的独立验证。也就是说，fault proof 解决的是“执行可验证性”，不是“治理完全去中心化”。OP Stack 的安全模型是 trust-minimized，而不是完全没有治理信任假设。
+
+### 15.3 为什么 FPVM 内存需要 Merkle tree
+
+FDG 里的 claim 通常只提交 VM state hash，而不是完整 VM 内存。VM state 里包含 `memRoot`，它是整片 VM 内存的 Merkle root。
+
+当 L1 最后验证一步时，它需要确认：
+
+```text
+pc 指向的位置里，真的是这条 MIPS 指令吗？
+load 读出来的值，真的是 pre-state 内存里的值吗？
+store 写入后得到的新 memRoot，真的是从旧 memRoot 正确更新来的值吗？
+```
+
+如果没有 Merkle proof，恶意参与者可以随口声称自己在某个地址读到了某个值，L1 没有完整内存，无法判断真假。
+
+Merkle memory 的作用是让单步 witness 可以自证：
+
+```text
+pre-state memRoot
+  + 被访问内存叶子
+  + Merkle path
+  -> L1 验证该 leaf 属于旧内存
+  -> L1 执行一条 VM 指令
+  -> L1 重新计算被修改路径
+  -> 得到 post-state memRoot
+```
+
+是的，每次内存写入后，确实需要从叶子一路更新 hash 到 root。但这个成本是可控的：树深固定，一条指令通常只访问很少的内存；链下可以维护完整内存结构，链上只验证少量 Merkle path。这样换来的是 L1 不需要重放整段程序，也不需要保存完整 VM 内存。
+
+FPVM 内存里存的是被模拟 MIPS64 程序运行时看到的内容，例如：
+
+```text
+op-program 的 MIPS 指令代码
+只读数据和全局数据
+堆
+栈
+运行时数据
+preimage 交互缓冲
+```
+
+但并不是所有 VM 状态都在内存里。寄存器、pc / nextPC、线程状态、退出码、`preimageKey`、`preimageOffset`、`memRoot` 等属于 VM state 或 thread state，而不是普通内存内容。
+
 ## 16. 一个区块内为什么不是对交易 hash 二分
 
 一个 L2 block 里可能包含交易列表、交易 hash、区块数据等。

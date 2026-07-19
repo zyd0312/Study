@@ -80,6 +80,61 @@ stateRoot
 
 这保证出块者不能随便改状态，比如不能凭空给自己加 ETH。
 
+### 3.1 链上数据如何被查到
+
+用户平时不是直接“问区块链网络查数据”，而是通过 JSON-RPC 问某个以太坊节点。节点同步区块、执行交易、维护本地状态数据库，然后按请求返回数据。
+
+链上数据常见有几类：
+
+```text
+合约 storage：
+比如 mapping、uint、bytes32。可以用 eth_getStorageAt 或 eth_call 读取。
+
+交易 calldata：
+交易输入数据，存在区块交易体里。可以通过交易 hash 或区块数据读取。
+
+event logs：
+合约 emit 的事件，存在交易 receipt 里。可以用 eth_getLogs 或 receipt 查询。
+
+合约 bytecode：
+合约账户的 runtime code。可以用 eth_getCode 读取。
+
+blob 数据：
+EIP-4844 后 Rollup 常用。L1 保存 commitment，blob 数据只保证短期可用。
+```
+
+以合约 storage 为例，节点查询某个 slot 时，底层路径大致是：
+
+```text
+区块头 stateRoot
+  -> 全局 state trie
+  -> 用 keccak256(address) 找到合约账户
+  -> 合约账户里有 storageRoot
+  -> 用 keccak256(slot) 找到具体 storage value
+```
+
+这里的 `keccak256(address)` 不是解密，而是把地址变成状态树里的查找路径。哈希输出的 32 字节会被拆成 64 个 nibble，每个 nibble 对应 Merkle Patricia Trie 中 0 到 f 的分支。
+
+如果不信 RPC 节点，可以要求它返回 proof，例如 `eth_getProof`。验证 proof 时，本地会做两层检查：
+
+```text
+accountProof：
+从区块头 stateRoot 出发，按 keccak256(address) 走 state trie，
+检查每个节点 RLP 编码后的 hash 是否接到下一个节点，
+最后确认这个合约账户和它的 storageRoot 属于该 stateRoot。
+
+storageProof：
+从账户的 storageRoot 出发，按 keccak256(slot) 走 storage trie，
+同样逐层检查节点 hash，
+最后确认这个 slot 的 value 属于该 storageRoot。
+```
+
+因此 proof 验证的核心不是重新执行交易，而是确认：
+
+```text
+这个 value 确实被某个区块头里的 stateRoot 承诺。
+```
+
 ## 4. 谁运行智能合约
 
 智能合约代码存储在以太坊链上状态里。合约部署后，它的 runtime bytecode 会成为某个合约账户的代码。
@@ -149,6 +204,40 @@ EOA 的特点：
 没有代码
 用签名证明控制权
 ```
+
+### 6.1 随机性、地址空间和碰撞
+
+EOA 私钥本质上是一个落在 secp256k1 曲线合法范围内的 256-bit 数字。钱包生成私钥时，应使用操作系统或浏览器提供的密码学安全随机数生成器。
+
+地址生成可以简化为：
+
+```text
+private key
+  -> secp256k1 public key
+  -> keccak256(public key)
+  -> 取后 20 bytes
+  -> Ethereum address
+```
+
+如果生成私钥时的随机数被攻击者知道，或者随机性很差，攻击者就可能复现或枚举出私钥。真正危险的通常不是哈希碰撞，而是：
+
+```text
+弱随机
+脑钱包口令太简单
+助记词泄露
+私钥被恶意软件读取
+签名钓鱼
+```
+
+以太坊地址是 20 bytes，也就是 160 bit，所以理论地址空间是：
+
+```text
+2^160
+```
+
+这个空间有限，但大到现实中不可用尽。state trie 也不是预先存满所有地址，只有发生过链上状态变化的地址才会进入状态，例如有余额、nonce、code 或 storage。
+
+不同私钥理论上可能映射到同一个地址，但自然碰撞概率极低。攻击者随机枚举私钥，确实有数学可能碰到有钱账户；但对于均匀随机生成的私钥，所需尝试次数远超现实计算能力。现实攻击更多是扫弱私钥、弱助记词或人的操作漏洞。
 
 ## 7. 智能合约是如何创建的
 
