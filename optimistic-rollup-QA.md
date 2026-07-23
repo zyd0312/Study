@@ -37,6 +37,16 @@ Proposer 提交 L2 output root 到 L1
   -> 如果有人挑战并成功，错误结果被推翻
 ```
 
+这里要区分两件事：
+
+```text
+batch 发布到 L1 = 发布 L2 交易输入数据
+output root 提交到 L1 = 声明这些输入执行后的状态结果
+```
+
+所以不能把“batch 上链”直接等同于“开始挑战 output root”。
+挑战期对应的是 proposer 对执行结果的声明，而不是对原始交易输入本身的存在性做争议。batch 的作用是让任何人都能重放 L2；output root 的作用是让 L1 有一个可结算、可争议的状态承诺。
+
 所以它的安全模型不是：
 
 ```text
@@ -50,6 +60,23 @@ L1 主动重放全部 L2 交易
 ```
 
 这要求至少有一个诚实参与者在挑战期内监控并挑战错误状态。
+
+### 2.1 canonical 输入和错误结果
+
+这里的 `canonical` 可以理解为“协议认可的标准版本”。
+
+对于 OP Stack 来说：
+
+```text
+canonical L1 data
+  -> canonical batch / canonical L2 输入
+  -> canonical derivation
+  -> canonical L2 execution result
+```
+
+如果 sequencer 把一批合法的 L2 交易数据发布到了 canonical L1 chain 上，这批 batch 仍然可以是 canonical 的；真正可能出错的是它后来声称的 `state root` / `output root`。
+
+这也是 fault proof 要挑战的对象：不是“这批交易存不存在”，而是“按协议规则执行这批 canonical 输入以后，proposer 声称的结果对不对”。
 
 ## 3. L1 智能合约在 Rollup 中的角色
 
@@ -80,6 +107,28 @@ Rollup 不是只在 L2 跑一套链就够了。它还需要在以太坊 L1 上�
 ```
 
 L1 合约不负责执行整个 L2 区块，但负责记录、管理和最终确认 L2 的状态声明。
+
+### 3.1 L2 state root、withdrawal root 和 output root
+
+`L2 state root` 是整个 L2 执行状态的承诺哈希。可以把它理解成：
+
+```text
+所有 L2 账户状态
+  -> state trie
+  -> state root
+```
+
+只要余额、nonce、合约 storage、code 等任意状态变化，state root 就会变化。
+
+`withdrawal root` 在 OP Stack 里通常指 `L2ToL1MessagePasser` 合约的 storage root。它专门承诺 L2->L1 提款消息集合，方便 L1 在提现时验证某条 withdrawal 确实存在于已确认的 L2 状态中。
+
+`output root` 则是 L1 上最终提交的状态承诺，通常把这些关键字段压在一起：
+
+```text
+state root
+withdrawal storage root
+latest L2 block hash
+```
 
 ## 4. 通过 L1 转账和通过 Rollup 转账的区别
 
@@ -116,6 +165,88 @@ A 构造 L2 交易
 ```
 
 L2 转账通常更快、更便宜，但最终安全性要通过 L1 数据可用性和 Rollup 证明/挑战机制来获得。
+
+### 4.1 从 L2 收集交易到 Rollup 到 L1
+
+标准 OP Stack 的主流程可以拆成两条线：
+
+```text
+快速执行线：
+用户交易 -> sequencer 排序 -> L2 出块 -> 用户看到 unsafe 确认
+
+确认结算线：
+op-batcher 发布 batch 到 L1 -> op-node 从 L1 推导 L2
+  -> op-geth 重新执行 -> op-proposer 提交 output root
+  -> 挑战期 / fault proof -> withdrawal 等状态可最终确认
+```
+
+更细地看：
+
+```text
+用户签名 L2 交易
+  -> 交易进入 sequencer tx pool
+  -> sequencer 选择和排序交易
+  -> 构造 payload attributes
+  -> op-geth / execution engine 执行交易
+  -> L2 account、storage、receipt、state root 改变
+  -> 生成新的 L2 block，unsafe head 前进
+  -> op-batcher 读取 L2 block 数据
+  -> batch / channel / frame 压缩拆分
+  -> batcher transaction 提交到 L1
+  -> L1 block 包含这批 L2 数据
+  -> verifier 的 op-node 从 L1 数据重新推导 payload attributes
+  -> verifier 的 op-geth 重新执行
+  -> safe head 前进
+  -> op-proposer 计算并提交 output root
+```
+
+这里 L1 上发布的 batch 主要是可重放的交易输入数据，不是完整 L2 状态。L1 不主动执行全部 L2 交易，否则会破坏 optimistic rollup “默认相信、争议时验证”的设计，也会大幅削弱把执行移到 L2 带来的扩容收益。
+
+### 4.2 L2 不是先全网共识再 Rollup
+
+很多 Rollup 并不是先在 L2 上完成一套类似 Ethereum L1 的全网共识，然后再把“共识后的 L2 区块”提交到 L1。
+
+以 OP Stack 这类 optimistic rollup 为例，更接近下面这个流程：
+
+```text
+sequencer 先排序并快速出 L2 block
+  -> 用户和节点先看到 unsafe L2 block
+  -> op-batcher 把对应 L2 交易数据发到 L1
+  -> 这些 L1 数据成为所有节点的共同输入
+  -> op-node 从 canonical L1 数据重新推导 L2
+  -> op-geth 按推导出的 payload attributes 执行
+  -> 能从 L1 推导出来的 L2 block 成为 safe
+```
+
+所以不是：
+
+```text
+L2 全体节点先达成共识
+  -> 再 rollup 到 L1
+```
+
+而是：
+
+```text
+sequencer 先给出快速排序结果
+  -> L1 发布数据并提供共同输入
+  -> 诚实 L2 节点从 L1 数据确定性推导 canonical L2
+```
+
+可以把 L2 block 的确认层级粗略分成三类：
+
+```text
+unsafe：
+sequencer 先给出的 L2 block，速度快，但还没有被 L1 batch 数据确认。
+
+safe：
+能从当前 canonical L1 数据推导出来的 L2 block。
+
+finalized：
+依赖的 L1 数据已经 finalized 的 L2 block。
+```
+
+因此，L2 的最终可信性主要来自 L1 数据可用性、derivation 规则和证明/挑战机制，而不是 L2 自己先独立完成一套完整共识。
 
 ### L1 到 L2
 
@@ -229,6 +360,78 @@ L1 默认接受提交结果
 最终化 / 可用于提款：
 经过挑战期，且没有被成功挑战，才被系统当作有效状态
 ```
+
+### 8.1 为什么 L1 之后可能发生 reorg
+
+L1 会发生 `reorg`，意思是原来被视为 canonical 的区块后来被另一条链替换掉了。
+
+例如某个 L1 block 里包含了 batcher transaction，但随后 L1 fork choice 选择了另一条链，那么这笔 batch 数据就不再属于 canonical L1 chain。此时 rollup node 不能继续把它当作标准输入，只能跟随新的 canonical L1 chain 重新推导 L2。
+
+所以 OP Stack 的 derivation 必须始终跟着 canonical L1 chain 走，而不是跟着“曾经看见过的某个 L1 block”走。
+
+### 8.2 挑战成功或失败后，L1 和 L2 各自发生什么
+
+FDG 的判决对象不是“L2 链要不要继续运行”，而是：
+
+```text
+某个 L2 output root 能不能被 L1 rollup 合约接受为结算依据
+```
+
+如果挑战失败，说明 challenger 没能证明 proposer 的 output root 错了：
+
+```text
+L1：
+dispute game resolve 为 proposer 胜
+challenger 的 bond 可能被没收
+output root 保持有效
+挑战期结束后，该 output root 可用于 withdrawal / bridge 结算
+
+L2：
+sequencer、op-batcher、op-node、op-geth 继续正常运行
+L2 不会因为挑战失败而重新执行一遍
+```
+
+如果挑战成功，说明 proposer 的 output root 被证明是错的：
+
+```text
+L1：
+dispute game resolve 为 challenger 胜
+错误方 bond 被罚
+该 output root 被判定无效
+基于该 output root 的 withdrawal 不能 finalize
+后续需要提交正确的 output root
+
+L2：
+节点继续按 canonical L1 数据推导 L2
+如果之前只是 L1 上的 output claim 错了，L2 链本身不需要回滚
+如果之前 sequencer 广播了错误 unsafe block，诚实节点会丢弃不符合 derivation 的 unsafe view
+```
+
+也就是说，L1 的裁决会影响某个状态承诺能否进入结算逻辑；L2 节点则始终根据 canonical L1 数据和 rollup 规则决定哪条 L2 链是 canonical。
+
+### 8.3 proposer 错 output root 和 sequencer 错 unsafe block 的区别
+
+这两种错误发生在不同位置。
+
+第一种是 proposer 提交错 output root：
+
+```text
+batch 数据是 canonical 的
+诚实节点执行后得到 output root A
+proposer 却向 L1 提交 output root B
+```
+
+这种情况下，错的是 L1 上的状态声明 `B`，不是 batch 本身。挑战成功后，L1 拒绝 `B`，后续需要正确的 output root。
+
+第二种是 sequencer 曾经广播错误的 unsafe L2 block：
+
+```text
+sequencer 先通过 RPC / p2p 广播某个 L2 block
+但后续 canonical L1 batch 数据推导不出这个 block
+或者正确执行结果和它不一致
+```
+
+这种情况下，诚实 L2 节点会以 canonical L1 数据推导出的 safe chain 为准，丢弃或重组掉错误的 unsafe view。这里也不是 L2 全网先共识后发现错，而是 L1 canonical 数据成为最终共同输入。
 
 ## 9. 恶意交易和错误状态转换不是一回事
 

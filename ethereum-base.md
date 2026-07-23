@@ -176,6 +176,22 @@ storageProof：
 执行层确认这个区块的状态转换合法
 ```
 
+### 5.1 canonical chain 和 reorg
+
+`canonical chain` 可以理解成“当前被协议和共识规则选中的主链”。
+
+如果网络里短时间出现了两条竞争链，节点会先看到不同的区块；等共识最终选出其中一条，另一条上已经出现的区块就可能被 `reorg` 掉。
+
+这对 Rollup 很重要，因为 L2 的 derivation 依赖 L1 的 canonical 数据：
+
+```text
+canonical L1 block
+  -> batch / deposit 数据
+  -> L2 derivation
+```
+
+如果 L1 reorg，Rollup 节点就必须跟着新的 canonical L1 chain 重新推导 L2。换句话说，L2 不是跟着“曾经见过的 L1 block”走，而是跟着“最终被选中的 L1 主链”走。
+
 ## 6. 普通账户是如何创建的
 
 普通账户，也叫 EOA，创建过程不需要上链。
