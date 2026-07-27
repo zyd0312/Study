@@ -1,0 +1,1462 @@
+
+
+===== PAGE 1 =====
+Mystique: Efficient Conversions for Zero-Knowledge
+Proofs with Applications to Machine Learning
+Chenkai Weng, Northwestern University; Kang Yang, State Key Laboratory of
+Cryptology; Xiang Xie, Shanghai Key Laboratory of Privacy-Preserving Computation
+and MatrixElements Technologies; Jonathan Katz, University of Maryland;
+Xiao Wang, Northwestern University
+https://www.usenix.org/conference/usenixsecurity21/presentation/weng
+This paper is included in the Proceedings of the
+30th USENIX Security Symposium.
+August 11–13, 2021
+978-1-939133-24-3
+Open access to the Proceedings of the
+30th USENIX Security Symposium
+is sponsored by USENIX.
+
+
+===== PAGE 2 =====
+Mystique: Efficient Conversions for Zero-Knowledge Proofs
+with Applications to Machine Learning
+Chenkai Weng Kang Yang ( )
+Northwestern University State Key Laboratory of Cryptology
+Xiang Xie Jonathan Katz Xiao Wang ( )
+Shanghai Key Laboratory of University of Maryland Northwestern University
+Privacy-Preserving Computation and
+MatrixElements Technologies
+Abstract general public. Using a ZK protocol, a white-hat hacker
+who discovers a bug in the model (e.g., an evasion attack)
+Recent progress in interactive zero-knowledge (ZK) proofs
+could prove existence of that bug in zero knowledge, e.g.,
+has improved the efficiency of proving large-scale computa-
+they could prove knowledge of two “close” inputs x and x
+tions significantly. Nevertheless, real-life applications (e.g., in 1 2
+for which M (x ) (cid:54)= M (x ).
+the context of private inference using deep neural networks) 1 2
+often involve highly complex computations, and existing ZK
+• Zero-knowledge proofs of correct inference. An ML
+protocols lack the expressiveness and scalability to prove
+model may require huge effort to train and thus may only
+results about such computations efficiently.
+be accessible as a paid service (e.g., GPT-3 that contains
+In this paper, we design, develop, and evaluate a ZK system
+175 billion parameters [19]). In this case, the model param-
+(Mystique) that allows for efficient conversions between arith-
+eters are kept private, and users need to send their inputs
+metic and Boolean values, between publicly committed and
+to the owner of an ML model to be classified. Currently,
+privately authenticated values, and between fixed-point and
+such users have no guarantee that the model owner applies
+floating-point numbers. Targeting large-scale neural-network
+the correct model. Using a ZK protocol, the model owner
+inference, we also present an improved ZK protocol for ma-
+could publicly commit to a model, and then proves in zero
+trix multiplication that yields a 7× improvement compared
+knowledge that the committed model was applied to the
+to the state-of-the-art. Finally, we incorporate Mystique in
+user’s submitted input, yielding the claimed result.
+Rosetta, a TensorFlow-based privacy-preserving framework.
+Mystique is able to prove correctness of an inference on a • Zero-knowledge proofs of private benchmarks. An ML
+private image using a committed (private) ResNet-101 model model may be evaluated on private testing data. Here, the
+in 28 minutes, and can do the same task when the model is owner of the testing data can publicly commit to its data;
+public in 5 minutes, with only a 0.02% decrease in accuracy a model trainer can then send its model (developed using
+compared to a non-ZK execution when testing on the CIFAR- independent training data) to the data owner, who locally
+10 dataset. Our system is the first to support ZK proofs about evaluates the accuracy of the model. The data owner can
+neural-network models with over 100 layers with virtually no use a ZK protocol to prove that the submitted model was
+loss of accuracy. executed on the committed data.
+Unfortunately, after examining existing ZK proof systems,
+1 Introduction
+we found that no existing solutions were sufficiently scalable
+or practical for any of the above applications once reasonably
+Zero-knowledge (ZK) proofs allow one party with a secret
+complicated neural-network models were involved. For exam-
+witness to prove some statement about that witness without
+ple, zk-SNARKs [9,10,12,16,20,41,47,50] provide excellent
+revealing any additional information. In recent years we have
+proof size and verification time, and support verifiable com-
+seen massive progress in the efficiency and scalability of ZK
+putation on committed data [29]. However, state-of-the-art
+proofs based on many different ideas [14, 17, 34, 38, 39]. With
+zk-SNARKs require the memory of the prover to be pro-
+such improvements, we envision a huge potential in applying
+portional to the statement size; proving a statement with a
+ZK proofs to machine learning (ML) applications, particularly
+billion constraints would require about 640 GB of memory.
+neural-network inference. As examples:
+For ML applications, they can only handle simple models like
+• Zero-knowledge proofs of evasion attacks. A pre-trained decision trees [57]. Recent ZK protocols based on subfield
+model M might be publicly released to be used by the vector oblivious linear evaluation (sVOLE) [7, 27, 52, 54],
+USENIX Association 30th USENIX Security Symposium 501
+
+
+===== PAGE 3 =====
+resulting system for ZK proofs regarding neural-network in-
+ference. As shown in Figure 1, linear layers of the neural
+network are accelerated by using our matrix-multiplication
+optimization, while the non-linear layers rely on our fixed-
+point/floating-point conversions. (We implemented ReLU,
+Sigmoid, Max Pooling, SoftMax, and Batch Normalization
+in the non-linear layers; other operations can be added eas-
+ily.) All computations can be done using either arithmetic or
+Figure 1: Overview of our system for ZK neural-network
+Boolean values, depending on which is more efficient at any
+inference.
+given step. Due to our improved cryptographic protocols and
+integrated implementation, we can implement ZK proofs on
+large neural networks (e.g., ResNet-50 and ResNet-101) with
+privacy-free garbled circuits [30, 37, 39], or the “MPC-in-
+millions of model parameters; see Section 7.
+the-head” paradigm [4, 8, 21, 33, 40] are efficient in terms
+of execution time and memory overhead, but do not work
+efficiently with publicly committed data and the overall com-
+munication is still fairly large. While in principle one could 2 Preliminaries
+use zk-SNARKs with recursive composition [15, 23], their
+concrete performance is still quite poor.
+2.1 Notation
+1.1 Our Contributions We use λ and ρ to denote the computational and statistical se-
+curity parameters, respectively. For a finite set S, we use x ← S
+We propose a system (Mystique1) based on recent sVOLE- to denote that x is chosen uniformly from S. For a, b ∈ N,
+based interactive ZK protocols that includes a set of building
+we denote by [a, b] the set {a, . . . , b}, and by [a, b) the set
+blocks for efficient ZK proofs of large-scale neural-network
+{a, . . . , b − 1}. We use bold lower-case letters like xxx for col-
+inference. Crucially, our system includes efficient techniques
+umn vectors, and denote by x the i-th component of xxx where
+i
+for three types of conversions:
+x is the first entry. We use xxx(cid:62) to denote the transposition of xxx.
+1
+We use negl(·) to denote a negligible function.
+1. Arithmetic/Boolean values. Inspired by a similar ideas
+in the setting of secure computation [28], we design opti- For an extension field F qk of a field F q , we fix some
+mized protocols to efficiently convert between arithmetic monic, irreducible polynomial f (X) of degree k so that F qk ∼ =
+and Boolean values (to support mixed-mode circuits) in F q [X]/ f (X). Thus, every element a ∈ F qk can be uniquely
+the context of sVOLE-based zero knowledge. written as a = ∑ h∈[1,k] a h · Xh−1 with a h ∈ F q for all h ∈ [1, k].
+When we write arithmetic expressions involving both ele-
+2. Committed/authenticated values. To allow publicly ments of F and F , operations are performed in F with
+q qk qk
+committed values to be used in ZK proofs, we design an elements of F viewed as elements of F in the natural way.
+q qk
+efficient protocol that converts such values to values that
+In general, we work in an extension field such that qk ≥ 2ρ.
+are privately authenticated by the prover and verifier, and
+can thus be used directly in sVOLE-based ZK protocols.
+3. Fixed-point/floating-point values. We designed circuits 2.2 Universal Composability
+for IEEE-754-compliant floating-point operations, and de-
+signed efficient protocols to convert between fixed-point We say that protocol Π UC-realizes ideal functionality F if for
+values (encoded in a field) and floating-point numbers. any probabilistic polynomial time (PPT) adversary A, there
+exists a PPT simulator S such that for any PPT environment Z
+In addition to the above, we also design an efficient ZK proof
+with arbitrary auxiliary input, the output distribution of Z in
+for matrix multiplication, such that the number of private mul-
+the real-world execution where Z interacts with A and the par-
+tiplications required is sublinear in the matrix size. Compared
+ties running Π is computationally indistinguishable from the
+to the previously best-known ZK proof for matrix multiplica-
+output distribution of Z in the ideal-world execution where
+tion [54], our ZK protocol improves the execution time by a
+Z interacts with S and F. In the G-hybrid model the parties
+factor of 7×.
+execute a protocol given access to ideal functionality G. We
+We integrated the above in Rosetta [22], a privacy-
+say that protocol Π UC-realizes F in the G-hybrid model
+preserving framework based on TensorFlow [1], and use the
+with statistical error ε if the statistical difference between
+1Mystique is a shape-shifter; our system supports efficient conversions the output distributions of Z in the real-world execution and
+(“shape shifting”) in zero knowledge. hybrid-world execution is bounded by ε.
+502 30th USENIX Security Symposium USENIX Association
+
+
+===== PAGE 4 =====
+2.3 Information-theoretic MACs 2.4 Zero-Knowledge Proofs based on sVOLE
+We use information-theoretic message authentication codes Several recent works [7, 27, 52, 54] explored the efficiency
+(IT-MACs), which were originally proposed for maliciously of sVOLE-based interactive ZK proofs. One can consider
+secure two-party computation [13,43]. We authenticate values authenticated values as a form of commitments on values
+in F , but the authentication itself is done over an extension held by a prover P , which can be verified by the verifier V .
+q
+field F . Specifically, let ∆ ∈ F be a uniform global key Therefore, one can construct a ZK protocol following the
+qk qk
+known only to the verifier V . A value x ∈ F known by the “commit-and-prove” paradigm as follows:
+q
+prover P is authenticated by giving V a uniform local key
+K ∈ F and giving P the corresponding tag 1. In a preprocessing phase, P and V execute the sVOLE
+qk
+protocol to generate n + N uniform authenticated values,
+M = K + ∆ · x ∈ F qk . where n is the witness size and N is the number of mul-
+We denote such an authenticated value by [x] = (x, M, K), tiplication gates in the circuit. The parties also compute
+meaning that P holds (x, M) and V holds K. When we want a uniform authenticated value A∗ 1 ∈ F qk by generating k
+to make the field explicit, we write [x] . We extend the above uniform authenticated values in F q and then using packing
+q
+(see [54] for details). Thus, P obtains A∗, A∗ ∈ F and V
+notation to vectors or matrices of authenticated values as well. 0 1 qk
+For example, [xxx] means that P holds xxx ∈ Fn q and M ∈ (F qk )n, gets B∗ ∈ F qk such that B∗ = A∗ 0 + ∆ · A∗ 1 .
+while V holds K ∈ (F )n with M = K + ∆ · xxx.
+qk 2. Using the uniform authenticated values, P commits to
+Authenticated values are additively homomorphic. That is,
+all the wire values in an evaluation of the circuit on its
+given authenticated values [x ], . . . , [x ] and public coefficients
+1 (cid:96) witness. In particular, for each input wire of the circuit or
+c
+1
+, . . . , c
+(cid:96)
+, c ∈ F
+q
+, the parties can compute [y] = ∑(cid:96)
+i=1
+c
+i
+·[x
+i
+]+c
+output wire of a multiplication gate with associated value
+using only local computation. x ∈ F , P sends d = x − r ∈ F to V and then both parties
+q q
+Batch opening. An authenticated value [x] can be opened by compute [x] := [r] + d, where [r] is a random authenticated
+having P send (x, M) to V , who verifies M = K + ∆ · x. When value computed in the previous step. Due to the additively
+opening (cid:96) values, it is possible to do better than (cid:96) parallel homomorphic property of the underlying authenticated
+repetitions of this procedure; specifically, all (cid:96) values can be values, the parties can process addition gates for free and
+opened using only (cid:96) log q + λ bits of communication. We use so this allows P and V to compute authenticated values
+BatchCheck for the following batch-opening procedure: on every wire in the circuit.
+• Let H : {0, 1}∗ → {0, 1}λ be a hash function modeled as
+3. P proves that the committed values at all multiplication
+a random oracle. Suppose that [x ], . . . , [x ] are (cid:96) authenti-
+1 (cid:96) gates are correct by running a consistency-check procedure
+cated values to be opened.
+with V . The known sVOLE-based ZK proofs [7,27,52,54]
+• P sends x , . . . , x ∈ F to V . use different consistency-check procedures. The state-of-
+1 (cid:96) q
+the-art consistency check [27, 54] works as follows:
+• Additionally:
+(a) Consider the i-th multiplication gate with authenti-
+– If q = 2 and k = λ, the two parties compute χ :=
+cated values ([x], [y], [z]). If it is computed correctly
+H(x 1 , . . . , x (cid:96) ) ∈ F 2λ . P computes σ := ∑ i∈[1,(cid:96)] M i · χi ∈ (i.e., z = x · y), then:
+F and sends it to V , who checks whether σ =
+2λ
+∑ i∈[1,(cid:96)] (K i + ∆ · x i ) · χi. As in prior work [35, 52], known to V
+the soundness error is bounded by (q H + (cid:96) + 1)/2λ = (cid:122) B i = K x · (cid:125) K (cid:124) y + K z · ∆ (cid:123)
+negl(λ), where q is the number of queries to H.
+H = (M − x · ∆) · (M − y · ∆) + (M − z · ∆) · ∆
+x y z
+– Otherwise, P computes σ := H(M , . . . , M ) ∈ {0, 1}λ
+1 (cid:96) = M · M + (M − y · M − x · M ) · ∆ + (x · y − z) · ∆2
+and sends it to V , who can then check whether σ := x y z x y
+H(K + ∆ · x , . . . , K + ∆ · x ). The soundness error is at = M x · M y + (M z − y · M x − x · M y ) · ∆ .
+most 1 1/pk + 1 q H /2λ (cid:96) = 1/pk (cid:96) + negl(λ) [26]. k (cid:124) now (cid:123) n (cid:122) to (cid:125) P (cid:124) know (cid:123) n (cid:122) to P (cid:125) kno (cid:124) w (cid:123) n (cid:122) t (cid:125) o V
+When the opened values are all zero and so need not be sent, denoted by A 0,i denoted by A 1,i global key
+we use CheckZero to denote the batch-opening procedure.
+If z (cid:54)= x · y, then the above holds with probability at
+Authenticated values from sVOLE. We can view authen-
+most 2/qk over choice of ∆.
+ticated values as subfield vector oblivious linear evaluation
+(sVOLE) correlations. Thus, random authenticated values can (b) The parties can check all N of the above equations
+be efficiently generated using the recent LPN-based sVOLE at once by taking a random linear combination. In
+protocols [18, 46, 52, 55], which have communication com- particular, V samples and sends a uniform χ ∈ F qk
+plexity sublinear in the number of authenticated values. to P . Then P sends U 0 := ∑ i∈[1,N] A 0,i · χi + A∗ 0 and
+USENIX Association 30th USENIX Security Symposium 503
+
+
+===== PAGE 5 =====
+U 1 := ∑ i∈[1,N] A 1,i · χi + A∗ 1 to V , who checks that Functionality F authZK
+∑ i∈[1,N] B i · χi + B∗ = U 0 +U 1 · ∆. This can be made This functionality is parameterized by a prime p > 2 and
+non-interactive using the Fiat-Shamir transform (i.e.,
+an integer k such that pk ≥ 2ρ, and can invoke a macro
+computing χ by hashing the protocol transcript), and
+Auth() defined in Figure 4. Let m = (cid:100)log p(cid:101).
+can be further optimized when q is large [52, 54].
+Initialize: On input (init) from a prover P and verifier V ,
+The ideal functionality for ZK proofs in this setting is summa- sample ∆ ← F and Γ ← F if V is honest, and receive
+2λ pk
+rized in Figure 2, where both arithmetic and Boolean circuits ∆ ∈ F and Γ ∈ F from the adversary otherwise. Store
+2λ pk
+are considered. (Prior work [7, 27, 52, 54] efficiently realizes (∆, Γ) and send them to V , and ignore all subsequent
+either arithmetic or Boolean circuits, but not mixed-mode (init) commands.
+computations.) For convenience, we also include in the ideal
+Input: On input (input, id, w, q) from P and (input, id, q)
+functionality the other conversions we support in our work
+from V , where id is a fresh identifier, w ∈ F and q ∈
+(see Figure 3). q
+{2, p}, execute Auth(w, q) so that the parties obtain [w],
+and store (id, q, [w]).
+3 Technical Overview
+Output: On input (output, id) from two parties where
+id is present in memory, retrieve (id, q, [z]) and output
+As mentioned in Section 1.1, we propose new protocols for z ∈ F to V .
+q
+arithmetic-Boolean and commitment-authentication conver-
+Circuit-based commands
+sions that are highly useful in real-world applications. We
+summarize in Figure 3 for the functionality definition of the Random: On input (random, id, q) from P and V with
+two types of conversions. At a high level, our arithmetic- id a fresh identifier and q ∈ {2, p}, sample w ← F if P
+q
+Boolean conversion allows authenticated values to be con- is honest; otherwise receive w ∈ F from the adversary.
+q
+verted between arithmetic and Boolean circuits, while at the Execute Auth(w, q) so that the parties obtain [w], and
+same time ensuring that the consistent values are converted. store (id, q, [w]).
+The commitment-authentication conversion allows us to con-
+Linear combination: On input (lincomb, id, {id } ,
+vert from publicly committed values to privately authenticated i i∈[1,(cid:96)]
+{c } , q) from two parties, where (id , q) is present
+values: the former provides a unified view of data across mul- i i∈[0,(cid:96)] i
+in memory for i ∈ [1, (cid:96)] and c ∈ F for i ∈ [0, (cid:96)], re-
+tiple verifiers, while the later can be efficiently processed by i q
+trieve (id , q, [x ]) for all i ∈ [1, (cid:96)], and then compute
+the sVOLE-based ZK protocols. i i
+For ML applications, we also present the conversion be- [y] := c 0 + ∑ i∈[1,(cid:96)] c i · [x i ], store (id, q, [y]) and output [y]
+to the parties.
+tween fixed-point and floating-point numbers, and an im-
+proved ZK proof for matrix multiplication. Below we provide Multiply: On input (mult, id, id , id , q) from both par-
+1 2
+an overview of our techniques and leave the detailed protocol ties, where (id , q) and (id , q) are present in mem-
+1 2
+description as well as proofs of security in later sections. ory, retrieve (id , q, [x]) and (id , q, [y]). Then compute
+1 2
+z := x ·y ∈ F , run Auth(z, q) so that the parties obtain [z],
+q
+and store (id, q, [z]).
+3.1 Arithmetic-Boolean Conversion
+Figure 2: Zero-knowledge functionality with authenti-
+Enabling ZK proofs to support both arithmetic and Boolean
+cated values.
+circuits have been an important topic and studied in prior
+work. Particularly, in zk-SNARKs, it is often referred to as
+bit-decomposition [11, 12, 24, 44, 49]. Suppose that a prover
+has a witness x and the statement needs to compute on the bit Our approach. Some recent works on sVOLE-based ZK pro-
+representation of x. The prover can provide a bit decomposi- tocols achieve high concrete efficiency [7, 27, 52, 54]. They
+tion of x, namely {x } , with m as the bit-length of x. The support either arithmetic or Boolean circuits, and compute
+i i∈[0,m)
+prover can then prove in zero-knowledge that x · (x − 1) = 0 a circuit with authenticated wire values. The conversion be-
+i i
+for all i ∈ [0, m) and ∑ i∈[0,m) x i · 2i = x. Essentially, this is tween two types of circuits boils down to converting between
+a way to simulate bit computation on an arithmetic circuit, authenticated arithmetic values and authenticated Boolean
+which does not improve the underlying ZK proof. values. These cases are similar to some secure multi-party
+Another solution [36] is to combine garbled-circuit zero- computation (MPC) protocols, which only support operations
+knowledge proofs [30, 37, 39] (GCZK) with arithmetic gar- over either arithmetic or Boolean circuits, and use IT-MACs
+bling [6]. However, it only supports multiplication by public to authenticate secretly-sharing values.
+constants, and thus proving multiplication of two values over In the MPC setting, converting authenticated shares be-
+field F still needs to take communication of λ log p bits. tween arithmetic and Boolean circuits can be accomplished
+p
+504 30th USENIX Security Symposium USENIX Association
+
+
+===== PAGE 6 =====
+prime p (meaning that p ≥ 2ρ), so that one set of MAC tags
+Functionality F , continued
+authZK
+support Boolean operations (i.e., AND and XOR), while the
+Conversion between arithmetic and Boolean values other set of MAC tags are arithmetic-operation (i.e., MULT
+and ADD) homomorphic. To perform a conversion, we need
+From arithmetic to Boolean: On input (convertA2B,
+m = (cid:100)log p(cid:101) such daBits, which are used to convert the shares
+id, id , . . . , id ) from P and V where (id, p) is present
+in me 0 mory, r m e − tr 1 ieve (id, p, [x] p ) and decompose x ∈ F p of x 0 , . . . , x m−1 ∈ F 2 to that of x = ∑ h m = − 0 1 x h · 2h ∈ F p , where
+as (x 0 , . . . , x m−1 ) ∈ {0, 1}m such that x = ∑ m i= − 0 1 x i · 2i t Z h K e r s e e l t a t t i e n d g, M w A e C ca t n ag u s se ar a e s a i l m so il c a o r n m v e e t r h te o d d. ac U c n o f r o d r i t n u g n l a y t . e I l n y, th al e -
+mod p. Then, for i ∈ [0, m), execute Auth(x , 2) so that
+i though we can authenticate a field element over F efficiently
+the parties obtain [x ] and store (id , 2, [x ] ). p
+i 2 i i 2
+in communication of O(log p) bits, authenticating a bit with
+From Boolean to arithmetic: On input (convertB2A, the MAC tag in F still takes O(log p) bits (instead of one bit)
+p
+id 0 , . . . , id m−1 , id) from two parties, where (id i , 2) is for communication. As a result, the conversion requires a total
+present in memory for i ∈ [0, m), retrieve (id i , 2, [x i ] 2 ) for communication of O(log2 p) bits for generating m daBits, not
+each i ∈ [0, m). Then, compute x := ∑ m i= − 0 1 x i · 2i mod p, even counting the cost to perform conversion using daBits.
+execute Auth(x, p) so that the parties obtain [x] , and
+p To overcome this, we instead follow the more recent ex-
+store (id, p, [x] ).
+p tended daBits (edaBits) [28], which can be viewed as a more
+compact representation of daBits. An edaBit consists of a
+Conversion from publicly committed values to
+set of m random secretly-shared bits ([r ] , . . . , [r ] ) with
+privately authenticated values 0 2 m−1 2
+the MAC tags in F and a secretly-shared field element [r]
+2λ p
+Commit: On input (commit, cid, x, q) from P with cid with the MAC tag in F p , such that (r 0 , . . . , r m−1 ) ∈ Fm 2 is
+a fresh identifier, x ∈ F q and q ∈ {2, p}, store (cid, q, x) equal to the bit-decomposition of r ∈ F p . Such an edaBit
+and send (cid, q) to multiple potential verifiers. is sufficient to perform conversion between arithmetic and
+Boolean circuits. Now, generating an edaBit requires only
+From committed to authenticated values: On input
+O(log p) bits of communication. Inspired by the edaBits
+(convertC2A, cid, id) from P and a verifier V , where cid
+approach for MPC, we first construct ZK-friendly edaBits
+is present in memory and id is a fresh identifier, retrieve
+(zk-edaBits) to keep compatible with the recent sVOLE-based
+(cid, q, x), and then execute Auth(x, q) so that the two
+ZK proofs [7, 27, 52, 54], and then construct two conversion
+parties obtain [x] and store (id, q, [x]).
+protocols using our random zk-edaBits, where one can con-
+vert authenticated values from arithmetic to Boolean circuits
+Figure 3: Zero-knowledge functionality with authenti-
+and the other converts in another direction.
+cated values, continued.
+Constructing zk-edaBits. Similar to edaBit in the MPC set-
+Macro Auth(x, q) ting, a zk-edaBit consists of a random authenticated value
+[r] and m authenticated bits [r ] , . . . , [r ] , such that r =
+On input x ∈ F and q ∈ {2, p}, this subroutine interacts p 0 2 m−1 2
+with two parties q P and V , and generates an authenticated ∑ m h= − 0 1 r h · 2h mod p. In the ZK setting, the prover is allowed
+to know (r , . . . , r , r) as it knows all wire values in the
+value [x] for the parties. Let k = λ and Φ = ∆ if q = 2. 0 m−1
+circuit, and thus the secret sharing of these values is unnec-
+Let k ∈ N such that qk ≥ 2ρ and Φ = Γ if q = p.
+essary. Here, we do not assume that p is a large prime, and
+1. If V is honest, sample K ← F . Otherwise, receive instead allow any prime p > 2, as we consider authentication
+qk
+K ∈ F qk from the adversary. is done in an extension field F pk with pk ≥ 2ρ.
+Using two sVOLE-based ZK proofs where one for F
+2. If P is honest, compute M := K + Φ · x ∈ F qk . Other- and the other for F , we can construct authenticated value 2 s
+wise, receive M ∈ F from the adversary and recom- p
+qk ([r ] , . . . , [r ] ) and [r] with communication of O(log p)
+pute K := M − Φ · x ∈ F . 0 2 m−1 2 p
+qk bits in total. Nevertheless, if the prover is malicious, then there
+3. Output [x] to the parties, i.e., send (x, M) to P and K may be an inconsistency (i.e, r (cid:54)= ∑ m h= − 0 1 r h · 2h mod p). Now,
+our task is to check the consistency of N faulty zk-edaBits
+to V .
+computed as above, where N is the number of zk-edaBits
+needed. This could be done using the “cut-and-bucketing”
+Figure 4: Macro used by functionalities F and
+authZK
+technique similar to prior work [5, 32, 52]. Specifically, we
+F to generate authenticated values.
+zk-edaBits
+let a prover P and a verifier V generate extra N(B − 1) + c
+faulty zk-edaBits, where B, c are two parameters. Then two
+by so-called doubly authenticated bits (daBits) [3,25,45]. The parties use a random permutation to shuffle NB + c faulty
+key idea of daBits is to prepare for secretly-shared random zk-edaBits. The last c faulty zk-edaBits are opened, and their
+bits that are authenticated in both fields F and F with a large correctness is checked by V . Next, the remaining NB faulty
+2 p
+USENIX Association 30th USENIX Security Symposium 505
+
+
+===== PAGE 7 =====
+zk-edaBits are partitioned into N buckets with each of size could be very high as we need to calculate a lot of matrix
+B. Finally, for each bucket, the parties perform the “combine- multiplications with random bits.
+and-open” check B − 1 times of between the first zk-edaBit To minimize the circuit size, we use a “hybrid commit-
+in the bucket and the other B − 1 zk-edaBits. See Section 4.1 ment” scheme: to commit a set of messages {xxx } with
+i i∈[1,(cid:96)]
+for more details and optimization. xxx ∈ {0, 1}m, we first pick a random key sk ← {0, 1}λ, commit
+i
+to this key by using a slow commitment scheme (e.g., H(sk, r)
+Arithmetic-Boolean conversions using zk-edaBits. In Fig-
+for a random oracle H and a randomness r), and then commit
+ure 3, we define the functionality for converting authenticated
+the messages as ccc := PRF(sk, i) ⊕ xxx for i ∈ [1, (cid:96)], where PRF
+wire values between arithmetic and Boolean circuits. We will i i
+is a standard pseudorandom function. The security of this hy-
+use random zk-edaBits to realize the conversion of authenti-
+brid commitment scheme can be reduced to the security of the
+cated values between arithmetic and Boolean wires.
+slow commitment scheme as well as the pseudo-randomness
+Given a random zk-edaBit ([r ] , . . . , [r ] , [r] ) and an
+0 2 m−1 2 p of PRF. What’s more, if the slow commitment scheme is
+authenticated value [x] to be converted, P and V can open a
+p extractable, then the overall commitment scheme is also ex-
+masked value [z] = [x] − [r] , and call functionality F
+p p p authZK tractable. Note that we cannot equivocate xxx to any vector if
+with only circuit-based commands to compute a modular- i
+we use the natural “open” algorithm with sending sk and xxx ,
+addition circuit on a public input (z , . . . , z ) and a secret in- i
+0 m−1 as the function PRF is fixed. However, we can make this com-
+put ([r ] , . . . , [r ] ) so that they obtain ([x ] , . . . , [x ] ),
+0 2 m−1 2 0 2 m−1 2 mitment scheme equivocal in an interactive way: we prove
+where (z , . . . , z ) is the bit-decomposition of z. From
+0 m−1 knowledge of sk and xxx such that all relationships hold, and
+z = x − r mod p and ∑ m h= − 0 1 z h · 2h = z mod p, one can easily convert the committed v i alue to an authenticated value in zero
+verify that (x , . . . , x ) is the bit-decomposition of x. The
+0 m−1 knowledge. Besides, we easily extend the above hybrid com-
+other direction can be constructed in a similar way.
+mitment scheme to support committed values over any field
+In general, we need to convert multiple authenticated val-
+F by extending the output range of PRF to Fm.
+ues between arithmetic and Boolean wires, and thus can open q q
+To reduce the number of AND gates for PRF, we choose to
+multiple authenticated values in a batch to reduce the com-
+use LowMC to instantiate PRF. To obtain faster computation,
+munication cost. In Section 4.2, we will provide the full de-
+we adopt a smaller block size (i.e., 64 bits). As a result, our
+scription of our protocols and formal proofs of security.
+protocol can convert 18,000 64-bit committed values (144
+KB in total) to authenticated values in a second.
+3.2 Conversion from Publicly Committed Val-
+ues to Privately Authenticated Values 3.3 Optimizations for ML Applications
+Our second task is to convert from non-interactive commit- To make ZK proofs of ML applications practical, we also pro-
+ments (publicly available to all parties) to authenticated values pose several optimizations specifically to reduce the overhead
+(privately available between two parties). The former is suit- of some key ML components and to integrate with Tensor-
+able for committing values in a public repository, while the Flow [1]. Detailed descriptions can be found in Section 6.
+latter is better for efficient sVOLE-based ZK proofs and also
+Matrix multiplication. Directly proving matrix multiplica-
+compatible with the above conversion between arithmetic and tion in zero knowledge would require O(n3) number of multi-
+Boolean circuits. plications, which could be improved to O(n2.8) (or even lower)
+Our conversion uses the commitment scheme in a non-
+based on a better algorithm [48]. Although the prover time
+black-box way: a prover P first authenticates to a verifier V
+has to be linear to this complexity, we could reduce the circuit
+the committed values as well as the decommitment, and then
+size for ZK proofs significantly. Suppose in a certain stage of
+proves in zero-knowledge that the authenticated values satisfy
+the ZK protocol, a prover P wants to prove the relation that
+the opening of the public commitment. This establishes a A · B = C with A ∈ Fn×m, B ∈ Fm×(cid:96), C ∈ Fn×(cid:96), where A, B, C
+q q q
+connection between a public commitment and privately au-
+have been committed using authenticated values resulting
+thenticated values. The efficiency of the protocol crucially
+in [A], [B], [C]. By generalizing the Freivalds algorithm [31],
+relies on the size of the circuit to represent the opening of a
+we use a random-linear-combination approach to prove that
+commitment scheme. If we use cryptographic hash functions
+A · B = C holds. Specifically, we can let a verifier V sample
+like SHA-256, it would require more than 22,000 AND gates two uniformly random vectors uuu ∈ (F )n, vvv ∈ (F )(cid:96). Instead
+qk qk
+to commit a 512-bit message, averaging to 42 gates per bit.
+of directly proving [A] · [B] = [C], we can prove:
+One can also use LowMC [2] as a block cipher with the 256-
+bit key and 256-bit block length, where LowMC allows much uuu(cid:62) · [A] · [B] · vvv = uuu(cid:62) · [C] · vvv.
+less AND gates than standard block ciphers such as AES.
+When being modeled as an ideal cipher, LowMC can be con- Now, the parties can locally compute vectors of authenti-
+verted to a suitable hash function using the Merkle–Damgård cated values [xxx](cid:62) = [uuu(cid:62) · A] ∈ (F qk )m, [yyy] = [B · vvv] ∈ (F qk )m
+structure. However, the computation complexity in this case and [z] = [uuu(cid:62) · C · vvv] ∈ F . Thus, they only need to prove in
+qk
+506 30th USENIX Security Symposium USENIX Association
+
+
+===== PAGE 8 =====
+zero-knowledge that [xxx](cid:62) · [yyy] = [z], which takes only the com-
+Functionality F
+zk-edaBits
+munication of O(k log q) bits using the latest ZK proof [54],
+where k is an integer satisfying qk > 2ρ. Note that this ZK This functionality is parameterized by a prime p > 2 and
+protocol [54] allows to prove the statements over F . an integer k ≥ 1 with pk ≥ 2ρ. Let m = (cid:100)log p(cid:101).
+qk
+Initialize: On input (init) from P and V , sample ∆ ←
+Fixed-point and floating-point conversions. The above
+F and Γ ← F if V is honest, and receive ∆ ∈ F
+matrix-multiplication protocol only works over a field. How- 2λ pk 2λ
+and Γ ∈ F from the adversary otherwise. Store two
+ever, in the neural-network inference, all operations are for pk
+global keys (∆, Γ) and send them to V , and ignore all
+real numbers. To address this discrepancy, we use both fixed-
+subsequent (init) commands.
+point and floating-point encodings of real numbers at different
+stages of our protocol. Firstly, we encode a signed, fixed- Generate random ZK-friendly edaBits: On input
+point number x with − p−1 ≤ x ≤ p−1 into a field element in (random, id, id , . . . , id ) from two parties P and V
+2s+1 2s+1 0 m−1
+[− p− 2 1 , p− 2 1 ] by computing (cid:98)2s · x(cid:99), where p > 2 is a prime where id, id 0 , . . . , id m−1 are fresh identifiers, generate a
+and s ∈ N is a precision parameter. Then we easily encode random zk-edaBit ([r 0 ] 2 , . . . , [r m−1 ] 2 , [r] p ) with r i ∈ F 2
+field elements in [− p− 2 1 , p− 2 1 ] into field elements in [0, p − 1]. for i ∈ [0, m) and r = ∑ m i= − 0 1 r i · 2i ∈ F p as follows:
+In this way, the addition and multiplication of fixed-point num-
+bers are the same as addition and multiplication over field F , 1. If P is honest, sample r ← F p . Otherwise, receive r ∈
+p F from the adversary. Decompose r to (r , . . . , r )
+as long as there is no overflow. One caveat is that overflow can p 0 m−1
+happen quickly if the multiplication depth is high. Fortunately, such that r = ∑ m i= − 0 1 r i · 2i mod p.
+for matrix multiplication, the multiplication depth is 1. After
+2. Execute [r ] ← Auth(r , 2) for i ∈ [0, m) and
+i 2 i
+linear layers, we usually need to perform many non-linear op-
+[r] ← Auth(r, p), where the macro Auth(·) is de-
+p
+erations like Batch Normalization (which needs square root
+scribed in Figure 4. Thus, the two parties obtain
+and inverse), SoftMax (which additionally needs exponentia-
+([r ] , . . . , [r ] , [r] ).
+tion), ReLU (which additionally needs comparison), etc. To 0 2 m−1 2 p
+support these operations efficiently and accurately, we con- 3. Store (id, p, [r] ) and (id , 2, [r ] ) for i ∈ [0, m).
+p i i 2
+vert between fixed-point numbers and IEEE-754 compliant
+floating-point numbers using functionality F authZK with only Figure 5: Functionality for ZK-friendly extended doubly
+circuit-based commands, such that non-linear operations can authenticated bits.
+be performed in zero-knowledge.
+Integration with TensorFlow. To easily implement compli-
+and Boolean circuits. A zk-edaBit consists of a set of m au-
+cated neural networks, we integrated our backend protocol
+thenticated bits ([r ] , . . . , [r ] ) along with a random au-
+with TensorFlow [1], so that existing TensorFlow neural net- 0 2 m−1 2
+work implementations can be directly executed in our proto- thenticated value [r] p such that r = ∑ m h= − 0 1 r h · 2h ∈ F p . We
+provide the ideal functionality for zk-edaBits in Figure 5.
+col, while keeping the TensorFlow interfaces unchanged. In
+A prover P and a verifier V can generate faulty zk-edaBits
+particular, we implemented a set of common operators that
+by calling functionality F , and then use a “cut-and-
+are needed and hook them with TensorFlow using a dynamic authZK
+bucketing” technique to check the consistency of resulting
+pass. Due to our use of floating-point numbers in the non-
+zk-edaBits. Recall that the overview of our technique has
+linear layers, adding more operators is fairly straightforward.
+been described in Section 3.1. Thus, we directly provide the
+See Section 6.3 for more details.
+details of our zk-edaBits protocol in Figure 6. In this protocol,
+the prover and verifier use F with only circuit-based
+authZK
+4 Arithmetic-Boolean Conversion for Zero- commands to compute a Boolean circuit AdderModp, which
+Knowledge Proofs efficiently realizes the module-addition computation that adds
+two m-bit integers and then modules a prime p.
+In this section, we provide full details on how to construct
+Theorem 1. Protocol Π shown in Figure 6 UC-
+ZK-friendly extended doubly authenticated bits (zk-edaBits) zk-edaBits
+realizes functionality F in the presence of a
+efficiently, and then show how to use them to securely realize zk-edaBits
+static, malicious adversary with statistical error at most
+conversions between arithmetic and Boolean circuits.
+(cid:18) (cid:19)−1
+N(B − 1) + c
++ 1 in the F -hybrid model.
+B − 1 pk authZK
+4.1 Extended Doubly Authenticated Bits for
+Zero-Knowledge Proofs The proof of this theorem can be found in the full ver-
+sion [53]. Given the number N of zk-edaBits, we can choose
+As described in Section 3.1, zk-edaBit is a key tool in this (cid:18) N(B − 1) + c (cid:19)−1
+suitable parameters B and c such that ≤
+work to efficiently perform conversions between arithmetic B − 1
+USENIX Association 30th USENIX Security Symposium 507
+
+
+===== PAGE 9 =====
+Protocol Π zk-edaBits Protocol ΠA
+Co
+2
+n
+B
+vert
+Parameters: Let p > 2 be a prime, m = (cid:100)log p(cid:101) and
+k ∈ N with pk ≥ 2ρ. Two parties want to generate N Let p > 2 be a prime and m = (cid:100)log p(cid:101).
+zk-edaBits. Let B, c be some parameters to be specified Initialize: P and V send (init) to F , which re-
+zk-edaBits
+later and (cid:96) = NB + c. turns two uniform global keys to V .
+Initialize: P and V send (init) to F authZK , which returns Input: The parties have an authenticated value [x] p .
+two uniform global keys to V .
+Convert: P and V convert an authenticated value over
+Generating random zk-edaBits: field F into m authenticated bits as follows:
+p
+1. The parties generate random authenticated values 1. Call funcationality F , which returns ([r ] ,
+zk-edaBits 0 2
+[ri] p for i ∈ [1, (cid:96)]. Then, for i ∈ [1, (cid:96)], P decomposes ri . . . , [r m−1 ] 2 , [r] p ) to the parties.
+to (ri , . . . , ri ) such that ri = ∑ m−1 ri · 2h mod p.
+0 m−1 h=0 h 2. Compute [z] := [x] − [r] , and then execute the
+p p p
+2. For i ∈ [1, (cid:96)], P inputs (r 0 i , . . . , r m i −1 ) ∈ Fm 2 to F authZK , BatchCheck procedure on [z] p to obtain z.
+which returns ([ri ] , . . . , [ri ] ) to the parties.
+0 2 m−1 2 3. Decompose z as (z 0 , . . . , z m−1 ) such that z = ∑ h m = − 0 1 z h ·
+3. Place the first N zk-edaBits into N buckets in order, 2h mod p, and then compute ([x ] , . . . , [x ] ) :=
+0 2 m−1 2
+where each bucket has exactly one zk-edaBit. Then, AdderModp(z , . . . , z , [r ] , . . . , [r ] ) by call-
+0 m−1 0 2 m−1 2
+V samples a random permutation π and sends it to P . ing F authZK where z 0 , . . . , z m−1 are public constants.
+Use π to permute the remaining (cid:96) − N zk-edaBits.
+4. Output ([x ] , . . . , [x ] ).
+0 2 m−1 2
+4. The parties check that the last c zk-edaBits are cor-
+rectly computed and abort if not. Divide the remain- Figure 7: Protocol for converting from arithmetic to
+ing N(B − 1) (unopened) zk-edaBits into N buckets Boolean circuits in the (F zk-edaBits , F authZK )-hybrid model.
+accordingly, such that each bucket has B zk-edaBits.
+5. For each bucket, both parties choose the first 4.2 Arithmetic-Boolean Conversion Protocols
+zk-edaBit ([r ] , . . . , [r ] , [r] ) (that is placed into
+0 2 m−1 2 p
+Using functionality F efficiently realized in the pre-
+the bucket in the step 3), and for every other zk-edaBit zk-edaBits
+vious sub-section, we propose two efficient protocols to con-
+([s ] , . . . , [s ] , [s] ) in the same bucket, execute
+0 2 m−1 2 p
+vert authenticated wire values from an arithmetic circuit to a
+the following check:
+Boolean circuit and to convert in another direction. In the two
+(a) Compute [t] := [r] + [s] , and then execute protocols, the prover and verifier would also use functional-
+p p p
+([t 0 ] 2 , . . . , [t m−1 ] 2 ) := AdderModp([r 0 ] 2 , . . . , ity F authZK with only circuit-based commands to compute a
+[r ] , [s ] , . . . , [s ] ) by calling func- Boolean circuit AdderModp. In both protocols, we assume
+m−1 2 0 2 m−1 2
+tionality F authZK , where AdderModp is the that F zk-edaBits shares the same initialization procedure with
+modular-addition circuit, and ∑ m h= − 0 1 t h · 2h F authZK , and thus the same global keys are used in the two
+= ∑ m h= − 0 1 r h · 2h + ∑ m h= − 0 1 s h · 2h mod p. functionalities. This is the case, when we use the protocol
+Π shown in Figure 6 to UC-realize F in the
+(b) Execute the BatchCheck procedure on ([t ] , zk-edaBits zk-edaBits
+0 2 F -hybrid model. We also assume that F can use
+. . . , [t ] ) to obtain (t , . . . ,t ), and then authZK authZK
+m−1 2 0 m−1 authenticated values generated by F . This is easy to
+compute t(cid:48) := ∑ m h= − 0 1 t h · 2h mod p. be realized by viewing F as z a k- p e a da r B t i o ts f F .
+zk-edaBits authZK
+(c) Execute the CheckZero procedure on [t] p − t(cid:48) to We provide the full details about the conversion from arith-
+verify that t = t(cid:48). metic to Boolean circuits in Figure 7. In Figure 8, we de-
+scribe in details how to perform an efficient conversion from
+6. If any check fails, V aborts. Otherwise, the parties
+Boolean to arithmetic circuits.
+output the first zk-edaBit from each of the N buckets.
+Below, we prove the security of the two protocols in the
+following theorems.
+Figure 6: Protocol for generating ZK-friendly edaBits in
+the F authZK -hybrid model. Theorem 2. Protocol ΠA2B UC-realizes the convertA2B
+Convert
+command of functionality F in the presence of a
+authZK
+static, malicious adversary with statistical error 1/pk in the
+(F , F )-hybrid model.
+2−ρ. For example, when N = 106, we can choose B = 3 and zk-edaBits authZK
+c = 2, and achieve at least 40-bit statistical security. Theorem 3. Protocol ΠB2A UC-realizes the convertB2A
+Convert
+508 30th USENIX Security Symposium USENIX Association
+
+
+===== PAGE 10 =====
+using the cut-and-bucketing technique. Specifically, in the
+Protocol ΠB2A
+Convert online phase, two parties can execute the checking proce-
+dure shown in Figure 6 to check the consistency of these
+Let p > 2 be a prime and m = (cid:100)log p(cid:101).
+circuit-based zk-edaBits by sacrificing (B − 1)N + c random
+Initialize: P and V send (init) to F zk-edaBits , which re- zk-edaBits generated in the preprocessing phase. Using this
+turns two uniform global keys to V . optimization, for computing N circuit-based zk-edaBits, we
+can save N random zk-edaBits and N evaluations of circuit
+Input: Two parties P and V hold m authenticated bits
+AdderModp in terms of the whole efficiency, but increase the
+[x ] , . . . , [x ] .
+0 2 m−1 2
+online cost by a factor of B − 1.
+Convert: P and V convert m authenticated bits into one
+authenticated value over field F as follows:
+p
+5 Converting Publicly Committed Values to
+1. Call funcationality F zk-edaBits , which returns ([r 0 ] 2 , Privately Authenticated Values
+. . . , [r ] , [r] ) to the parties.
+m−1 2 p
+The second type of conversions that we would like to study
+2. Compute ([z ] , . . . , [z ] ) := AdderModp([x ] ,
+0 2 m−1 2 0 2
+is the conversion from publicly committed data to privately
+. . . , [x ] , [r ] , . . . , [r ] ) by calling functional-
+m−1 2 0 2 m−1 2
+authenticated data. Here, publicly committed data referred
+ity F authZK , such that ∑ m h= − 0 1 z h · 2h = ∑ m h= − 0 1 x h · 2h + to those committed with a short digest, which can be pub-
+∑ h m = − 0 1 r h · 2h mod p. lished on something that can be modeled as a bulletin board
+3. Execute the BatchCheck procedure on ([z ] , . . . , (e.g., well-established websites or some blockchain). Pri-
+0 2
+[z ] ) to obtain (z , . . . , z ), and then compute vately authenticated data refers to the values only known
+m−1 2 0 m−1
+z := ∑ m h= − 0 1 z h · 2h mod p. by a prover that are authenticated by a designated verifier
+based on IT-MACs, and thus can be efficiently used to prove
+4. Compute and output [x] p := z − [r] p . any mixed arithmetic-Boolean circuit using the recent ZK pro-
+tocols [7, 27, 52, 54] and our arithmetic-Boolean conversion
+Figure 8: Protocol for converting from Boolean to arith- protocols. The conversion from publicly committed data to
+metic circuits in the (F zk-edaBits , F authZK )-hybrid model. privately authenticated data will allow us to efficiently prove
+statements on consistent committed data to multiple different
+verifiers for multiple times.
+command of F in the presence of a static, malicious
+authZK
+adversary in the (F zk-edaBits , F authZK )-hybrid model. Our commitment-authentication conversion protocol. We
+present our efficient conversion protocol in Figure 9. This pro-
+The proofs of the above two theorems can be found in the
+tocol consists of two phases: 1) generating a non-interactive
+full version of this paper [53].
+commitment and 2) converting publicly committed values to
+Optimization using circuit-based zk-edaBits. In the con- privately authenticated values in an interactive manner. To
+version protocols described as above, a prover P and a verifier commit a large volume of data or different types of data, we
+V generate random zk-edaBits using functionality F divide them into pieces, where the i-th piece is denoted by
+zk-edaBits
+in the preprocessing phase, and then convert authenticated xxx i ∈ Fm q with a prime q ≥ 2 and a parameter m. Then, we let the
+values between arithmetic and Boolean circuits using these prover sample a random key sk and a uniform randomness r
+random zk-edaBits in the online phase. both in {0, 1}λ. Our commitment consists of com = H(sk, r)
+0
+We can use an alternative approach to convert authenticated and ccc = PRF(sk, i)+xxx ∈ Fm for all i ∈ [1, (cid:96)] with some (cid:96) ∈ N,
+i i q
+values between arithmetic and Boolean circuits, and obtain where H is a random oracle and PRF is a pseudorandom func-
+better whole efficiency but larger online cost. Specifically, tion. To perform conversion, the prover P proves knowledge
+for authenticated bits [x 0 ] 2 , . . . , [x m−1 ] 2 on m output wires of of sk and xxx i , such that com 0 and ccc i are computed with the
+a Boolean circuit, P can compute x := ∑ m h= − 0 1 x h · 2h mod p key and data piece. Since ccc i can be put in the public domain,
+locally. Then, P sends (input, x, p) to F authZK and V sends one can further reduce the size of the overall commitment by
+(input, p) to F authZK , which returns [x] p to the parties. Simi- computing a Merkle tree on top of all ccc i ’s. In this way, the
+larly, the parties can also convert an authenticated value [x] p commitment only has a size of 4λ bits, including com 0 and
+on an output wire of an arithmetic circuit into m authenti- the root of the Merkle tree (i.e., com ).
+1
+cated bits [x 0 ] 2 , . . . , [x m−1 ] 2 , by calling the (input) command Since key sk ∈ {0, 1}λ has a high entropy, we can actually
+of F authZK . In this way, two parties can create N circuit-based remove the randomness r. That is, the prover can just set
+zk-edaBits for some integer N. However, in the circuit-based H(sk) as com in the commitment phase and prove com =
+0 0
+zk-edaBits, a malicious prover may cause the field elements H([ssskkk] ) in the conversion phase. This will slightly improve
+2
+over F p are inconsistent with corresponding bits. Verifier V the efficiency of this protocol.
+can check the consistency of these circuit-based zk-edaBits
+USENIX Association 30th USENIX Security Symposium 509
+
+
+===== PAGE 11 =====
+formly random values in Fm. In the F -hybrid model,
+Protocol Π NICom→[·] q authZK
+the ZK proof does not reveal any information of committed
+values. Overall, the committed data is hidden. In the proof of
+Let q ≥ 2 be a prime. Let H : {0, 1}∗ → {0, 1}2λ be a
+security, the simulator can extract the key sk from com in the
+hash function modeled as a random oracle, and PRF : 0
+random-oracle model. Once sk was extracted, the simulator
+{0, 1}λ × {0, 1}λ → Fm be a pseudorandom function.
+q can easily recover xxx by decrypting ccc for i ∈ [1, (cid:96)]. This also
+i i
+Compute a public commitment: A prover P computes implies the binding property. Together with the soundness of
+and publishes a non-interactive commitment on values: the ZK protocol realizing F , we can ensure the consis-
+authZK
+tency between authenticated values and committed values.
+1. Sample sk, r ← {0, 1}λ; compute com 0 := H(sk, r). Note that this commitment (com 0 , com 1 ) itself is not equiv-
+ocal if we use the natural “open” algorithm that sends (sk, r):
+2. On input xxx , . . . , xxx ∈ Fm with (cid:96), m ∈ N, compute ccc :=
+1 (cid:96) q i although it is possible to equivocate the key sk to any value by
+PRF(sk, i) + xxx ∈ Fm for i ∈ [1, (cid:96)].
+i q programming the random oracle, the function PRF is fixed.
+3. Compute d i := H(ccc i ) for all i ∈ [1, (cid:96)]; build a Merkle Equivocating from xxx i to xxx(cid:48) i would require finding a key sk(cid:48)
+tree on these values using H with com 1 as the root. such that PRF(sk(cid:48), i)−PRF(sk, i) = xxx i −xxx(cid:48) i over Fm q . However,
+we can make it equivocal by an interactive opening: instead of
+4. Publish the commitment (com 0 , com 1 ). directly sending (sk, r), we can send ccc i and the corresponding
+path that can be verified with com , and prove knowledge of
+1
+Initialize: Prover P and a verifier V send (init) to
+a key sk and a randomness r such that com = H(sk, r) and
+0
+F authZK , which returns two uniform global keys to V . the other relationship on ccc hold. In this way, we can use the
+i
+Convert committed values into authenticated values: zero-knowledge property to equivocate the commitment.
+This procedure can be executed multiple times. For
+Instantiation of PRF. We use LowMC [2] to instantiate PRF
+some i ∈ [1, (cid:96)], P and V convert a committed value
+for reducing circuit complexity. One issue with LowMC is
+xxx ∈ Fm only known by P to m authenticated values
+i q that it contains a lot of XOR gates. Although they are free
+[x ], . . . , [x ]:
+i,1 i,m cryptographically, the computation complexity can be fairly
+high. We adopt the following optimizations for competitive
+1. Let path be the set containing all siblings of the nodes
+i
+performance:
+in the path from the i-th leaf to the root com . Prover
+1
+P sends (ccc , path ) to V , who verifies that H(ccc ) is a
+i i i • Similar to the signature scheme Picnic [56], we need to
+leaf node rooted in com .
+1 run PRF on a single key for many times, and thus can
+precompute the matrix multiplication about the key only
+2. By calling functionality F , the parties obtain
+authZK
+once and use it for all PRF evaluations.
+authenticated bit-vectors [ssskkk] , [rrr] on key sk and ran-
+2 2
+domness r, and then P proves in zero-knowledge that
+• We pick the block size as 64 bits to further reduce the
+com = H([ssskkk] , [rrr] ).
+0 2 2 number of XOR operations. The resulting protocol is highly
+efficient, and can convert 18,000 publicly committed data
+3. The parties call functionality F to compute
+authZK
+([x ], . . . , [x ]) ← ccc − PRF([ssskkk] , i) ∈ Fm, and then blocks (totally 144KB) to authenticated values per second.
+i,1 i,m i 2 q
+output {[x ]} .
+i, j j∈[1,m] • To reduce the number of rounds in LowMC, we choose
+the data complexity to be 230 blocks, which is sufficient to
+Figure 9: Protocol for converting committed values into
+commit 8 GB data. If the data is larger than that, we can
+authenticated values in the F -hybrid model.
+authZK just pick a new PRF key and commit this key.
+Comparing with other candidates. We briefly discuss the
+Theorem 4. Let H be a random oracle and PRF be a pseu- concrete efficiency of our protocol for one commitment-
+dorandom function. Then protocol Π shown in Fig- authentication conversion, and compares it with other alterna-
+NICom→[·]
+ure 9 UC-realizes the convertC2A command of functionality tives shown in Table 1. Here, we ignore the efficiency com-
+F in the presence of a static, malicious adversary in the parison for the commitment-generation phase, as it needs to
+authZK
+F -hybrid model. be executed only once.
+authZK
+For SHA-256 and LowMC-256, they refer to building a
+Below, we discuss the intuition of the above theorem and hash function modeled as a random oracle, and further con-
+leave the full formal proof to the full version [53]. We commit struct a commitment on message x via H(x, r) with a random-
+to sk using a standard UC commitment in the random-oracle ness r. For SHA-256, one invocation takes 22573 AND gates
+model, and so sk is computationally hiding, meaning that and can commit 256 bits of messages. For LowMC-256, we
+PRF(sk, i) for all i ∈ [1, (cid:96)] are indistinguishable from uni- first pick a LowMC block cipher with 256-bit key and block
+510 30th USENIX Security Symposium USENIX Association
+
+
+===== PAGE 12 =====
+Scheme This work SHA-256 LowMC-256 Protocol Π
+MatMul
+Time (µs) 55 395 ≥ 1000
+Inputs: A prover P and a verifier V have three authen-
+Comm. (bits) 62 705 49
+ticated matrices [A], [B] and [C], where A ∈ Fn×m, B ∈
+q
+Table 1: Efficiency comparison between our protocol and Fm×(cid:96) and C ∈ Fn×(cid:96).
+q q
+alternative protocol with natural commitments. Running
+Protocol execution: P proves in zero-knowledge that
+time in microsecond (µs) is based on two Amazon EC2 ma-
+A · B = C holds by interacting with V as follows:
+chines of type m5.2xlarge.
+1. V samples uuu ← (F )n, vvv ← (F )(cid:96), and then sends
+qk qk
+them to P .
+sizes, and then use Davies–Meyer to build a hash function.
+The SHA-256 method requires a lot of communication due to 2. P and V compute [xxx](cid:62) := uuu(cid:62) · [A] and [yyy] := [B] · vvv
+a large circuit size. The LowMC-256 approach is significantly locally (this can be also done by calling the (lincomb)
+slower compared to ours because: 1) our 64-bit block cipher command of F ). Both parties also compute
+authZK
+only computes 64-bit matrix multiplication, but LowMC-256 [z] := uuu(cid:62) · [C] · vvv.
+needs 256-bit matrix multiplication meaning 16 times more
+operations; 2) we only need 11 rounds but LowMC-256 needs 3. The parties compute [z(cid:48)] := [xxx](cid:62) · [yyy] by calling func-
+53 rounds; 3) we can use a fixed key for all messages but tionality F authZK , where z(cid:48) = xxx(cid:62) · yyy.
+LowMC-256 needs to rekey for every block of the message.
+4. Both parties execute the CheckZero procedure on
+Conversion from authenticated values to publicly com- [z] − [z(cid:48)] to verify that z = z(cid:48). If the check fails, V
+mitted values. In some applications, two parties P and V outputs false and aborts; otherwise, it outputs true.
+may want to convert authenticated values (say, output by some
+MPC protocol) into a public commitment on the same values. Figure 10: Zero-knowledge protocol for proving matrix
+Based on the protocol Π shown in Figure 9, this is multiplication in the F -hybrid model. Before run-
+NICom→[·] authZK
+easy to be realized by the following execution: ning this protocol, P and V have computed the authenticated
+values on all entries in the matrices to be proven by calling
+1. To convert authenticated values {[x ]} into
+i, j i∈[1,(cid:96)], j∈[1,m] the (input) command of F .
+authZK
+publicly committed values, P commits these vectors
+(x , . . . , x ) for i ∈ [1, (cid:96)] by executing the commitment-
+i,1 i,m
+generation phase of protoocol Π . Then P pub-
+NICom→[·]
+lishes the resulting commitment (com , com ). In the following theorem, we prove the security of this
+0 1
+protocol, where we refer the reader to [52] for the standard
+2. Then, P and V execute protocol Π to con-
+NICom→[·] ZK functionality. The detailed proof of this theorem can be
+vert commitment (com , com ) into authenticated values
+0 1 found in the full version [53].
+{[x(cid:48) ]} .
+i, j i∈[1,(cid:96)], j∈[1,m]
+3. The parties call the CheckZero procedure on [x(cid:48) ] − [x ]
+i, j i, j Theorem 5. Protocol Π shown in Figure 10 UC-
+for all i ∈ [1, (cid:96)], j ∈ [1, m], and abort if the check fails. MatMul
+realizes the standard ZK functionality F in the presence of
+ZK
+a static, malicious adversary with soundness error 3/qk in
+6 More Optimizations for ML Applications the F -hybrid model.
+authZK
+In this section, we will discuss several optimizations for key
+components in the machine learning (ML) applications and
+Further optimizations. We can further optimize the protocol
+how they are connected. Then, we describe how to support
+shown in Figure 10 by letting the verifier send a random seed
+various types of ML algorithms by extending TensorFlow [1].
+to the prover and then the two parties compute uuu and vvv by
+applying a random oracle to the seed.
+6.1 Optimizing Matrix Multiplication
+In protocol Π , the parties compute [z(cid:48)] = [xxx](cid:62) · [yyy]
+MatMul
+By generalizing the Freivalds algorithm [31], we propose a by calling the (mult) command of F . This require
+authZK
+ZK protocol to prove matrix multiplication with dimension communication of O(m log q) bits. To optimize the com-
+n × n over a field F (for any prime q ≥ 2), which only needs munication cost, we can define a multivariate polynomial
+q
+to prove n private multiplications rather than n3 using a naive f (xxx, yyy, z) = xxx(cid:62) · yyy − z, and then prove knowledge of xxx, yyy, z
+algorithm. Since the intuition of the protocol has been dis- such that f (xxx, yyy, z) = 0 using the latest ZK protocol [54].
+cussed in Section 3.3, we directly present the ZK protocol in This optimization can reduce the communication cost to only
+the F -hybrid model in Figure 10. O(k log q) bits, independent of m.
+authZK
+USENIX Association 30th USENIX Security Symposium 511
+
+
+===== PAGE 13 =====
+6.2 Support Fixed-Point and Floating-Point
+There are many non-linear operations in typical ML algo-
+rithms, including ReLU, Max Pooling, Sigmoid, SoftMax, etc.
+These operations are complicated to compute, and may of-
+ten cause some accuracy loss when values are represented
+as fixed-point numbers. In our implementation, we support
+native IEEE-754 single-precision number in ZK proofs so
+Figure 11: Integration with TensorFlow. Static and dynamic
+that we can obtain maximum accuracy.
+passes used in Rosetta to connect TensorFlow and our ZK
+Encoding signed, fixed-point numbers. Linear layers and
+protocol.
+non-linear layers appear alternately. It is crucial to encode
+data in F for linear layers so that we can enjoy our highly
+p
+efficient matrix-multiplication protocol described as above. AND gates for n = 61. However, we found that converting
+For non-linear layers, data is encoded as floating-point num- from fixed-point to floating-point numbers is about 3× slower,
+bers. To eventually convert between floating-point numbers since private logical right shift is done with n = 61, but private
+and elements over F p , we need to find a way to encode signed, logical left shift is handled with n = 24 (defined by IEEE-754).
+fixed-point numbers into F p , and execute an encoding proce- To close the efficiency gap between two directions, we can
+dure in another direction. let the prover provide a converted floating-point number as
+Given a prime p > 2, we can define an encoding proce- an extended witness on-demand, and then only prove in zero-
+dure from Z to F p as Encode(x ∈ Z) = (x mod p), where knowledge the conversion from a floating-point number to a
+an integer lies in [−(p − 1)/2, (p − 1)/2]. Note that field ele- fixed-point number.
+ments over F are represented in [0, p−1]. The corresponding
+p
+decoding procedure is described as follows:
+6.3 Integrating with TensorFlow
+(cid:40)
+x, x ≤ (p − 1)/2
+Decode(x ∈ F p ) = We integrate the algorithms into Rosetta [22], which is an
+x − p, x > (p − 1)/2
+efficient and easy-to-use framework based on TensorFlow [1].
+Now given a fixed-point number x and a precision param- Specifically, we implemented our ZK backend protocol in
+eter s ∈ N, we can encode x into F by Encode((cid:98)2s · x(cid:99)). If C++ to maintain high efficiency and integrated to the back-
+p
+(cid:98)2s · x(cid:99) ∈ [−(p − 1)/2, (p − 1)/2], there is almost no accuracy end of TensorFlow. In this way, developers could use simple
+loss. Encoding in another direction from elements over F interfaces in the frontend (in Python) to build complicated
+p
+to fixed-point numbers can be executed in a straightforward machine learning models without knowing details of the un-
+inverse process. There is one caveat: since we will perform derlying cryptographic protocols. As a result, one can reuse
+matrix multiplication after non-linear layers, it is important the original code and interfaces of TensorFlow, and import
+to leave enough slack so that the precision does not overflow. an additional package to enable our ZK protocol. Below we
+In our implementation, we use a Mersenne prime p = 261 − 1 discuss details of our integration. The main components of
+and encode fixed-point numbers into a 30-bit range (where Rosetta are static and dynamic passes described as follows.
+s = 16). Since in our application, the numbers never reach
+Static pass. In the frontend of TensorFlow, developers could
+close to the 30-bit range, this ensures that the matrix multipli-
+write a model with Python language. The underlying com-
+cation would not overflow.
+piler will convert the model into a graph, which consists of
+Converting between floating-point and fixed-point num- nodes and edges. Nodes are actually different operators, and
+bers. With values encoded as fixed-point numbers, we could edges are inputs/outputs of operators with specific data types
+convert between these fixed-point numbers and their bi- (e.g., int and float). Static pass, described in Figure 11,
+nary representation via the arithmetic-Boolean conversion as is implemented in our framework, which additionally turns
+shown in Section 4 and the encoding procedure described as this graph into an abstract secure graph. Secure graph dif-
+above. Thus, the remaining task is to design efficient Boolean fers from the original graph in edges and nodes. Particularly,
+circuits for conversions between fixed-point and floating-point all the edges in secure graph are string type, which will
+numbers. We use the single-precision circuits in EMP [51], contain the input and output information of each operator
+where the operations conform with the IEEE-754 standard. implemented with the underlying protocol (e.g., authenticated
+To perform the conversion from a floating-point number to values in our ZK protocol). This is designed to be applicable
+a fixed-point number, we follow the definition of IEEE-754. to various cryptographic algorithms or protocols. Secure op-
+The key components are private logical left shift and right erators additionally specify the edges to be either public or
+shift, each of which is implemented using a (n log n)-sized private according to applications. The nodes in secure graph
+circuit when shifting n bits. This procedure takes about 580 represent secure operators as shown in Figure 11.
+512 30th USENIX Security Symposium USENIX Association
+
+
+===== PAGE 14 =====
+7 Performance Evaluation
+50 Mbps 200 Mbps 500 Mbps 1 Gbps
+Conversions
+In this section, we benchmark the speed of Mystique and
+A2B 107 µs 45 µs 34 µs 29 µs
+how it performs on large-scale ML-inspired applications. We
+B2A 109 µs 49 µs 38 µs 33 µs
+used three neural network models: LeNet-52 (5 layers, 62000
+C2A 56 µs 55 µs 55 µs 55 µs
+model parameters), ResNet-50 (50 layers, 23.5 million model
+Fix2Float 50 µs 46 µs 46 µs 46 µs
+parameters), and ResNet-101 (101 layers, 42.5 million model
+Float2Fix 49 µs 46 µs 46 µs 46 µs
+parameters). All experimental results are obtained by run-
+Machine Learning (ML) Functions ning the protocol over two Amazon EC2 machines of type
+Sigmoid 2.1 ms 1.6 ms 1.6 ms 1.6 ms m5.2xlarge, each with 32 GB memory. We use all CPU
+Max Pooling 1.6 ms 0.5 ms 0.4 ms 0.4 ms resources but only a fraction of the memory. The largest ex-
+ReLU 908 µs 262 µs 185 µs 188 µs ample is for ResNet-101 that uses 12 GB of memory. Our
+SoftMax-10 209 ms 157 ms 161 ms 171 ms implementations use the latest sVOLE-based protocol [54]
+Batch Norm 415 ms 261 ms 257 ms 269 ms as the underlying ZK proof. All our implementations achieve
+the computational security parameter λ = 128 and statistical
+Matrix Multiplications
+security parameter ρ ≥ 40.
+MatMult-512 361 ms 186 ms 185 ms 185 ms
+MatMult-1024 2.42 s 1.48 s 1.39 s 1.37 s
+MatMult-2048 15.19 s 11.30 s 10.63 s 10.39 s
+Table 2: Performance of the basic building blocks. The 7.1 Benchmarking Our Building Blocks
+dimension of Max Pooling is 2 × 2. The dimension of
+Batch Normalization is [1, 16, 16, 4], which stands for the
+We test the performance of our key building blocks discussed
+batch size, height, weight and channels. For ML functions,
+in this paper and summarized the results in Table 2. From this
+the inputs and outputs are authenticated values in F with
+p table, we can see that our protocol is highly scalable and all
+p = 261 − 1. The performance result assumes that the inputs
+basic operations are highly efficient. The arithmetic-Boolean
+and outputs are all private to the verifier.
+conversion (i.e., A2B and B2A) consists of two phases. In the
+preprocessing phase, two parties generate random zk-edaBits,
+and the execution time per zk-edaBit decreases from 95 µs to
+19 µs when the bandwidth increases from 50 Mbps to 1 Gbps.
+Dynamic pass. The graph will be executed by TensorFlow In the online phase, two parties can convert authenticated wire
+in the backend when data is fed, and the string-type data will values between arithmetic and Boolean circuits cheaply. The
+flow across the graph. Dynamic pass shown in Figure 11 is de- efficiency of the conversion from a public commitment to
+signed to integrate the graph execution with our ZK protocol. privately authenticated values (i.e., C2A) is mainly dominated
+When handling a specific operator (e.g., matrix multiplica- by the computation of PRF in a Boolean circuit. It only takes
+tion), dynamic pass will first convert the string-type data into around 56 µs to apply the PRF to a 64-bit data block, when the
+ZK-friendly authenticated values (i.e., ZK type in Figure 11), network bandwidth is at least 50 Mbps, due to the high com-
+and then call the underlying ZK protocol for this operator munication efficiency of our protocol. The terms Fix2Float
+and get the authenticated output. Finally, dynamic pass will and Float2Fix represent the conversions between fixed-point
+convert the resulting authenticated values back to string-type and floating-point numbers, where the execution time for both
+data, such that the data can be handled by TensorFlow and conversions is around 46 µs per conversion when the network
+passed to the next operator. The universal composability of bandwidth is larger than 50 Mbps.
+our protocol ensures that our approach is secure. To make
+For the ZK proof of matrix multiplication (i.e., MatMul),
+sure all operators can be composed together directly as well
+our protocol can obtain around 185 ms of execution time
+as reduce the memory overhead, we encode the inputs and
+outputs of all operators into authenticated values over F . for dimension 512 × 512, when the network bandwidth is at
+p
+least 200 Mbps. The execution time is increased to about
+1.5 s and 11 s for dimensions 1024 × 1024 and 2048 × 2048,
+respectively. The main efficiency bottleneck is the local com-
+Extendibility. In addition to our ZK protocols, Rosetta [22] putation of matrix multiplication by the prover. Compared to
+is also capable of integrating with other cryptographic pro- the state-of-the-art ZK proof for matrix multiplication [54],
+tocols and algorithms, such as MPC and homomorphic en- which takes 10 seconds to prove a 1024 × 1024 matrix mul-
+cryption. It is feasible to support mixed protocols between tiplication over a network bandwidth of 500 Mbps, our ZK
+ZK proofs and MPC, where we will leave as a future work. protocol achieves a 7× improvement.
+USENIX Association 30th USENIX Security Symposium 513
+
+
+===== PAGE 15 =====
+Figure 12: Execution-time decomposition for ResNet-101 Inference. The top bar is for public-model private-feature inference;
+the bottom bar is for private-model private-feature inference. The network bandwidth is throttled to 200 Mbps.
+Model Image LeNet-5 ResNet-50 ResNet-101
+Communication
+Private Private 16.5 MB 1.27 GB 1.98 GB
+Private Public 16.5 MB 1.27 GB 1.98 GB
+Public Private 16.4 MB 0.53 GB 0.99 GB
+Execution time (seconds) in a 50 Mbps network
+Private Private 7.3 465 736
+Private Public 7.5 463 735
+Public Private 6.5 210 369
+Execution time (seconds) in a 200 Mbps network
+Private Private 5.9 333 535 Figure 13: (cid:96) -norm distance between the plaintext-
+2
+Private Public 5.5 336 541 inference probability vector and the ZK-inference proba-
+Public Private 4.9 158 262 bility vector. The mean difference is 0.0011 for ResNet-50
+and 0.0019 for ResNet-101.
+Table 3: Performance of zero-knowledge neural-network
+inference. All models are trained using the CIFAR-10 dataset.
+(resp., ResNet-101) takes about 2.6–5.6 (resp., 4.4–9) minutes
+to accomplish under a 200 Mbps network.
+7.2 Benchmarking Private Inference
+Microbenchmark. Figure 12 reports the microbenchmark of
+With these building blocks, we connect them together to build our ResNet-101 inference. We collect the time usage of dif-
+a ZK system to prove the inference of large neural networks ferent components including the protocol setup, private input
+as we described in Section 6.3. We consider three canonical (i.e., computing corresponding authenticated values), differ-
+settings, where the model parameters and model feature input ent operators and framework overhead. Significant amount of
+can either be private to the prover or public to both parties. costs are used in Batch Normalization, ReLU, convolution2D
+We focus on three neural networks: LeNet-5, ResNet-50, and and framework overhead. When the model is private, an addi-
+ResNet-101. While the first example is relatively simple, the tional proportion of time will also be used for private input.
+last two examples represent the state-of-the-art neural net- Note that the Batch Normalization takes around 70% of time
+works in terms of accuracy and complexity. in both cases because it involves complicated arithmetic oper-
+In Table 3, we summarize the performance for all neural ations and conversions between floating-point and fixed-point
+networks, where the commitment on a model or data is not numbers, which are costly to maintain accuracy. It will be an
+involved. After all optimizations, the slowest component in interesting future work to further improve the efficiency of
+our protocol is Batch Normalization, which only exists in Batch Normalization and ReLU without losing accuracy.
+ResNet-50 and ResNet-101. For all models, we observe that
+Benchmarking the accuracy. Our approach is highly accu-
+when the model is private, the overall execution time is higher
+rate, but could still cause some accuracy loss. This could par-
+than the case in which the model parameters are public. This
+ticularly be a concern for deep neural networks with hundred
+is because more operations have to be done in ZK proofs for
+of layers where the error could propagate and get amplified.
+private models. Regardless of this setting, LeNet-5 inference
+To benchmark the accuracy of our protocol, we ran the whole
+takes several seconds to finish. For all settings, ResNet-50
+CIFAR-10 testing dataset [42] containing 10000 imagines.
+2We use ReLU as activation function instead of tanh for better accuracy. CIFAR is one of the standard ML dataset to benchmark the
+514 30th USENIX Security Symposium USENIX Association
+
+
+===== PAGE 16 =====
+ML applications LeNet-5 ResNet-50 ResNet-101 proving the consistency between committed values and au-
+thenticated values for all model parameters; and 2) proving
+ZK for evasion attacks 9.8 s 316 s 524 s
+correct classification with private model and public input.
+ZK for genuine inference 7.2 s 16.4 m 28 m
+ZK for private benchmark 8.2 m 4.4 h 7.3 h • ZK proofs for private benchmark. In this application,
+the testing data set is publicly committed and the model
+Table 4: Efficiency of our ZK system in different applica-
+is public. Therefore, the main overhead comes from: 1)
+tions. All execution time is reported based on a 200 Mbps
+proving the consistency between committed testing data
+network and two m5.2xlarge machines.
+and authenticated data; and 2) proving correct classification
+with private input data and public model. In our example,
+we assume a testing data set of 100 images, and thus the
+performance of algorithms. Imagines in CIFAR-10 are all
+second step is executed for 100 times, once for each image.
+labeled within 10 different classes, each imagine is a 32 × 32
+color picture. The accuracy difference between the plaintext
+The execution time for every end-to-end application is re-
+model and our ZK model is only 0.02% for both ResNet-50
+ported in Table 4. Note that in the “ZK for private benchmark”
+and ResNet-101. To further understand the accuracy differ-
+application, 100 testing images were publicly committed, and
+ence, we also compare the underlying probability vector pre-
+then are converted to privately authenticated values using our
+dicted for each testing imagine. The dataset CIFAR-10 has 10
+conversion protocol shown in Section 5. Thus, the execution
+classes, and thus each inference produces a probability vector
+time for this application is significantly higher.
+of length 10, denoted as ppp for all i ∈ [1, 10000]. The final
+i
+prediction of the i-th testing imagine is ArgMax (ppp ). We are
+i i
+interested in the distribution of (cid:107)ppp − ppp(cid:48)(cid:107) , where ppp is from 8 Conclusion
+i i 2 i
+plaintext inference and ppp(cid:48) is from ZK inference. In Figure 13,
+i
+This paper presents various conversion protocols and builds
+we show the (cid:96) -norm differences of all 10000 inferences, and
+2
+zero-knowledge machine-learning inference on top of it. Al-
+we can see that even for ResNet-101, the (cid:96) -norm difference
+2
+though we have made a huge progress in proving ML algo-
+is smaller than 0.006 for 95% of the case. For LeNet-5, 99.9%
+rithms in zero-knowledge, there are still limitations to our ZK
+of the (cid:96) -norm difference are below 0.006. Therefore, for top-
+2
+system that deserves further exploration in future works. In
+k accuracy such as k = 5 (commonly used for ImageNet), our
+particular, our ZK protocol can only prove to one verifier at
+ZK inference will be highly accurate.
+a time, and the communication cost is fairly high compared
+to succinct ZK proofs like zk-SNARKs. We also observed
+7.3 End-to-End Applications
+a very high overhead for Batch Normalization, which may
+potentially be further optimized.
+By connecting the private models/features to publicly com-
+mitted models/features, Mystique can be used to build the
+three end-to-end applications mentioned in the Introduction. Acknowledgements
+Since we use CIFAR-10 dataset, each image is of size 32 × 32
+pixels and each pixel uses 3 bytes to represent the color. This We thank Yuanfeng Chen, Gaofeng Huang, Junjie Shi, and
+means that one image is of size 3072 bytes and takes about Yilin Yan from MatrixElements Technologies for helping to
+2.6 milliseconds to convert from publicly committed values integrate our protocol with Rosetta. Work of Kang Yang is
+to privately authenticated values. The sizes of three models supported by the National Key Research and Development
+considered in this paper are 0.25 MB, 94 MB, and 170 MB. Program of China (Grant No. 2020YFA0309703), and the
+They take 1.7 seconds, 646 seconds, and 1169 seconds to National Natural Science Foundation of China (Grant Nos.
+convert from a public commitment to authenticated values 62022018, 61932019). Work of Jonathan Katz is supported
+that can be used in our protocols directly. The cost to “pull” a by DARPA under Contract No. HR00112020025 and by NSF
+publicly committed model to be used in ZK proofs is high, but award #1563722. Work of Xiao Wang is supported in part
+it could always be amortized over multiple private inferences. by DARPA under Contract No. HR001120C0087. The views,
+opinions, and/or findings expressed are those of the author(s)
+• ZK proofs for evasion attacks. In this case, we need to
+and should not be interpreted as reflecting the position or pol-
+prove knowledge of two almost identical inputs that get
+icy of the the Department of Defense or the U.S. Government,
+classified to different results under a public model. There-
+and no official endorsement should be inferred.
+fore, the main cost is to prove the classification result in
+zero-knowledge under a public model twice.
+References
+• ZK proofs for genuine inference. In this application, the
+model parameters are private but publicly committed, while [1] Martín Abadi, Ashish Agarwal, Paul Barham, Eugene
+the input data is public. The main overhead is from: 1) Brevdo, Zhifeng Chen, Craig Citro, Greg S. Corrado,
+USENIX Association 30th USENIX Security Symposium 515
+
+
+===== PAGE 17 =====
+Andy Davis, Jeffrey Dean, Matthieu Devin, Sanjay Ghe- [9] Eli Ben-Sasson, Iddo Bentov, Yinon Horesh, and
+mawat, Ian Goodfellow, Andrew Harp, Geoffrey Irv- Michael Riabzev. Scalable zero knowledge with no
+ing, Michael Isard, Yangqing Jia, Rafal Jozefowicz, trusted setup. In Advances in Cryptology—Crypto 2019,
+Lukasz Kaiser, Manjunath Kudlur, Josh Levenberg, Dan Part III, volume 11694 of LNCS, pages 701–732.
+Mané, Rajat Monga, Sherry Moore, Derek Murray, Chris Springer, 2019.
+Olah, Mike Schuster, Jonathon Shlens, Benoit Steiner,
+[10] Eli Ben-Sasson, Alessandro Chiesa, Michael Riabzev,
+Ilya Sutskever, Kunal Talwar, Paul Tucker, Vincent
+Nicholas Spooner, Madars Virza, and Nicholas P. Ward.
+Vanhoucke, Vijay Vasudevan, Fernanda Viégas, Oriol
+Aurora: Transparent succinct arguments for R1CS. In
+Vinyals, Pete Warden, Martin Wattenberg, Martin Wicke,
+Advances in Cryptology—Eurocrypt 2019, Part I, vol-
+Yuan Yu, and Xiaoqiang Zheng. TensorFlow: Large-
+ume 11476 of LNCS, pages 103–128. Springer, 2019.
+scale machine learning on heterogeneous systems, 2015.
+Software available from http://tensorflow.org. [11] Eli Ben-Sasson, Alessandro Chiesa, Eran Tromer, and
+Madars Virza. Scalable zero knowledge via cycles of el-
+[2] Martin R. Albrecht, Christian Rechberger, Thomas
+liptic curves. In Advances in Cryptology—Crypto 2014,
+Schneider, Tyge Tiessen, and Michael Zohner. Ci-
+Part II, volume 8617 of LNCS, pages 276–294. Springer,
+phers for MPC and FHE. In Advances in Cryptology—
+2014.
+Eurocrypt 2015, Part I, volume 9056 of LNCS, pages
+430–454. Springer, 2015. [12] Eli Ben-Sasson, Alessandro Chiesa, Eran Tromer, and
+Madars Virza. Succinct non-interactive zero knowledge
+[3] Abdelrahaman Aly, Emmanuela Orsini, Dragos Rotaru, for a von neumann architecture. In USENIX Security
+Nigel P. Smart, and Tim Wood. Zaphod: Efficiently com- Symposium 2014, pages 781–796. USENIX Association,
+bining lsss and garbled circuits in scale. In Proceedings
+2014.
+of the 7th ACM Workshop on Encrypted Computing &
+Applied Homomorphic Cryptography, WAHC’19, page [13] Rikke Bendlin, Ivan Damgård, Claudio Orlandi, and
+33–44, 2019. Sarah Zakarias. Semi-homomorphic encryption and
+multiparty computation. In Advances in Cryptology—
+[4] Scott Ames, Carmit Hazay, Yuval Ishai, and Muthura- Eurocrypt 2011, volume 6632 of LNCS, pages 169–188.
+makrishnan Venkitasubramaniam. Ligero: Lightweight Springer, 2011.
+sublinear arguments without a trusted setup. In ACM
+[14] Nir Bitansky, Ran Canetti, Alessandro Chiesa, and Eran
+Conf. on Computer and Communications Security
+Tromer. From extractable collision resistance to suc-
+(CCS) 2017, pages 2087–2104. ACM Press, 2017.
+cinct non-interactive arguments of knowledge, and back
+[5] Toshinori Araki, Assi Barak, Jun Furukawa, Tamar again. In ITCS 2012, pages 326–349, Cambridge, MA,
+Lichter, Yehuda Lindell, Ariel Nof, Kazuma Ohara, Adi USA, January 8–10, 2012. Association for Computing
+Watzman, and Or Weinstein. Optimized honest-majority Machinery.
+MPC for malicious adversaries - breaking the 1 billion-
+[15] Dan Boneh, Justin Drake, Ben Fisch, and Ariel Gabizon.
+gate per second barrier. In IEEE Symp. Security and
+Halo infinite: Recursive zk-snarks from any additive
+Privacy 2017, pages 843–862. IEEE, 2017.
+polynomial commitment scheme. Cryptology ePrint
+Archive, Report 2020/1536, 2020. https://eprint.
+[6] Marshall Ball, Tal Malkin, and Mike Rosulek. Gar-
+iacr.org/2020/1536.
+bling gadgets for Boolean and arithmetic circuits. In
+ACM Conf. on Computer and Communications Security
+[16] Jonathan Bootle, Andrea Cerulli, Pyrros Chaidos, Jens
+(CCS) 2016, pages 565–577. ACM Press, 2016.
+Groth, and Christophe Petit. Efficient zero-knowledge
+arguments for arithmetic circuits in the discrete log
+[7] Carsten Baum, Alex J. Malozemoff, Marc Rosen, and
+setting. In Advances in Cryptology—Eurocrypt 2016,
+Peter Scholl. Mac’n’cheese: Zero-knowledge proofs for
+Part II, volume 9666 of LNCS, pages 327–357. Springer,
+arithmetic circuits with nested disjunctions. Cryptol-
+2016.
+ogy ePrint Archive, Report 2020/1410, 2020. https:
+//eprint.iacr.org/2020/1410. [17] Elette Boyle, Geoffroy Couteau, Niv Gilboa, and Yuval
+Ishai. Compressing vector OLE. In ACM Conf. on
+[8] Carsten Baum and Ariel Nof. Concretely-efficient zero-
+Computer and Communications Security (CCS) 2018,
+knowledge arguments for arithmetic circuits and their
+pages 896–912. ACM Press, 2018.
+application to lattice-based cryptography. In Intl. Con-
+ference on Theory and Practice of Public Key Cryptog- [18] Elette Boyle, Geoffroy Couteau, Niv Gilboa, Yuval Ishai,
+raphy 2020, Part I, LNCS, pages 495–526. Springer, Lisa Kohl, Peter Rindal, and Peter Scholl. Efficient two-
+2020. round OT extension and silent non-interactive secure
+516 30th USENIX Security Symposium USENIX Association
+
+
+===== PAGE 18 =====
+computation. In ACM Conf. on Computer and Commu- 2-party secure computation, or: Gate-scrambling revis-
+nications Security (CCS) 2019, pages 291–308. ACM ited. In Advances in Cryptology—Crypto 2017, Part I,
+Press, 2019. volume 10401 of LNCS, pages 167–187. Springer, 2017.
+[19] Tom B. Brown, Benjamin Mann, Nick Ryder, Melanie [27] Samuel Dittmer, Yuval Ishai, and Rafail Ostrovsky. Line-
+Subbiah, Jared Kaplan, Prafulla Dhariwal, Arvind point zero knowledge and its applications. Cryptol-
+Neelakantan, Pranav Shyam, Girish Sastry, Amanda ogy ePrint Archive, Report 2020/1446, 2020. https:
+Askell, Sandhini Agarwal, Ariel Herbert-Voss, Gretchen //eprint.iacr.org/2020/1446.
+Krueger, Tom Henighan, Rewon Child, Aditya Ramesh,
+[28] Daniel Escudero, Satrajit Ghosh, Marcel Keller, Rahul
+Daniel M. Ziegler, Jeffrey Wu, Clemens Winter, Christo-
+Rachuri, and Peter Scholl. Improved primitives for MPC
+pher Hesse, Mark Chen, Eric Sigler, Mateusz Litwin,
+over mixed arithmetic-binary circuits. In Advances in
+Scott Gray, Benjamin Chess, Jack Clark, Christopher
+Cryptology—Crypto 2020, Part II, LNCS, pages 823–
+Berner, Sam McCandlish, Alec Radford, Ilya Sutskever,
+852. Springer, 2020.
+and Dario Amodei. Language models are few-shot learn-
+ers. 2020.
+[29] Dario Fiore, Cédric Fournet, Esha Ghosh, Markulf
+Kohlweiss, Olga Ohrimenko, and Bryan Parno. Hash
+[20] Benedikt Bünz, Jonathan Bootle, Dan Boneh, Andrew
+first, argue later: Adaptive verifiable computations on
+Poelstra, Pieter Wuille, and Greg Maxwell. Bulletproofs:
+outsourced data. In ACM Conf. on Computer and Com-
+Short proofs for confidential transactions and more. In
+munications Security (CCS) 2016, pages 1304–1316.
+IEEE Symp. Security and Privacy 2018, pages 315–334.
+ACM Press, 2016.
+IEEE, 2018.
+[30] Tore Kasper Frederiksen, Jesper Buus Nielsen, and Clau-
+[21] Melissa Chase, David Derler, Steven Goldfeder, Clau-
+dio Orlandi. Privacy-free garbled circuits with appli-
+dio Orlandi, Sebastian Ramacher, Christian Rechberger,
+cations to efficient zero-knowledge. In Advances in
+Daniel Slamanig, and Greg Zaverucha. Post-quantum
+Cryptology—Eurocrypt 2015, Part II, volume 9057 of
+zero-knowledge and signatures from symmetric-key
+LNCS, pages 191–219. Springer, 2015.
+primitives. In ACM Conf. on Computer and Communi-
+cations Security (CCS) 2017, pages 1825–1842. ACM
+[31] R. Freivalds. Probabilistic machines can use less run-
+Press, 2017.
+ning time. In IFIP Congress, 1977.
+[22] Yuanfeng Chen, Gaofeng Huang, Junjie Shi, Xiang Xie, [32] Jun Furukawa, Yehuda Lindell, Ariel Nof, and Or Wein-
+and Yilin Yan. Rosetta: A Privacy-Preserving Frame- stein. High-throughput secure three-party computation
+work Based on TensorFlow. https://github.com/ for malicious adversaries and an honest majority. In Ad-
+LatticeX-Foundation/Rosetta, 2020. vances in Cryptology—Eurocrypt 2017, Part II, volume
+10211 of LNCS, pages 225–255. Springer, 2017.
+[23] Alessandro Chiesa, Dev Ojha, and Nicholas Spooner.
+Fractal: Post-quantum and transparent recursive proofs [33] Irene Giacomelli, Jesper Madsen, and Claudio Orlandi.
+from holography. In Advances in Cryptology— ZKBoo: Faster zero-knowledge for Boolean circuits. In
+Eurocrypt 2020, Part I, volume 12105 of LNCS, pages USENIX Security Symposium 2016, pages 1069–1083.
+769–793. Springer, 2020. USENIX Association, 2016.
+[24] Craig Costello, Cédric Fournet, Jon Howell, Markulf [34] Shafi Goldwasser, Yael Tauman Kalai, and Guy N. Roth-
+Kohlweiss, Benjamin Kreuter, Michael Naehrig, Bryan blum. Delegating computation: interactive proofs for
+Parno, and Samee Zahur. Geppetto: Versatile verifiable muggles. In 40th Annual ACM Symposium on Theory of
+computation. In IEEE Symp. Security and Privacy 2015, Computing (STOC), pages 113–122. ACM Press, 2008.
+pages 253–270. IEEE, 2015.
+[35] Carmit Hazay, Peter Scholl, and Eduardo Soria-Vazquez.
+[25] Ivan Damgård, Daniel Escudero, Tore Kasper Frederik- Low cost constant round MPC combining BMR and
+sen, Marcel Keller, Peter Scholl, and Nikolaj Volgushev. oblivious transfer. In Advances in Cryptology—
+New primitives for actively-secure MPC over rings with Asiacrypt 2017, Part I, LNCS, pages 598–628. Springer,
+applications to private machine learning. In IEEE Symp. 2017.
+Security and Privacy 2019, pages 1102–1120. IEEE,
+2019. [36] David Heath and Vladimir Kolesnikov. A 2.1 KHz zero-
+knowledge processor with BubbleRAM. In ACM Conf.
+[26] Ivan Damgård, Jesper Buus Nielsen, Michael Nielsen, on Computer and Communications Security (CCS) 2020,
+and Samuel Ranellucci. The TinyTable protocol for pages 2055–2074. ACM Press, 2020.
+USENIX Association 30th USENIX Security Symposium 517
+
+
+===== PAGE 19 =====
+[37] David Heath and Vladimir Kolesnikov. Stacked garbling [48] Volker Strassen. Gaussian elimination is not optimal.
+for disjunctive zero-knowledge proofs. In Advances in Numer. Math., 13(4):354–356, August 1969.
+Cryptology—Eurocrypt 2020, Part III, volume 12107 of
+[49] Riad S. Wahby, Srinath T. V. Setty, Zuocheng Ren, An-
+LNCS, pages 569–598. Springer, 2020.
+drew J. Blumberg, and Michael Walfish. Efficient RAM
+[38] Yuval Ishai, Eyal Kushilevitz, Rafail Ostrovsky, and and control flow in verifiable outsourced computation.
+Amit Sahai. Zero-knowledge from secure multiparty In Network and Distributed System Security Symposium
+computation. In 39th Annual ACM Symposium on The- (NDSS). The Internet Society, 2015.
+ory of Computing (STOC), pages 21–30. ACM Press,
+2007. [50] Riad S. Wahby, Ioanna Tzialla, abhi shelat, Justin Thaler,
+and Michael Walfish. Doubly-efficient zkSNARKs with-
+[39] Marek Jawurek, Florian Kerschbaum, and Claudio Or- out trusted setup. In IEEE Symp. Security and Pri-
+landi. Zero-knowledge using garbled circuits: how to vacy 2018, pages 926–943. IEEE, 2018.
+prove non-algebraic statements efficiently. In ACM Conf.
+on Computer and Communications Security (CCS) 2013, [51] Xiao Wang, Alex J. Malozemoff, and Jonathan Katz.
+pages 955–966. ACM Press, 2013. EMP-toolkit: Efficient MultiParty computation toolkit.
+https://github.com/emp-toolkit, 2016.
+[40] Jonathan Katz, Vladimir Kolesnikov, and Xiao Wang.
+Improved non-interactive zero knowledge with appli- [52] Chenkai Weng, Kang Yang, Jonathan Katz, and Xiao
+cations to post-quantum signatures. In ACM Conf. on Wang. Wolverine: Fast, scalable, and communication-
+Computer and Communications Security (CCS) 2018, efficient zero-knowledge proofs for boolean and arith-
+pages 525–537. ACM Press, 2018. metic circuits. In IEEE Symp. Security and Pri-
+vacy 2021. IEEE, 2021.
+[41] Ahmed E. Kosba, Dimitrios Papadopoulos, Charalam-
+pos Papamanthou, and Dawn Song. MIRAGE: Succinct [53] Chenkai Weng, Kang Yang, Xiang Xie, Jonathan Katz,
+arguments for randomized algorithms with applications and Xiao Wang. Mystique: Efficient conversions for
+to universal zk-SNARKs. In USENIX Security Sym- zero-knowledge proofs with applications to machine
+posium 2020, pages 2129–2146. USENIX Association, learning. Cryptology ePrint Archive, Report 2021/730,
+2020. 2021. https://eprint.iacr.org/2021/730.
+[42] Alex Krizhevsky, Vinod Nair, and Geoffrey Hinton.
+[54] Kang Yang, Pratik Sarkar, Chenkai Weng, and Xiao
+Cifar-10 (canadian institute for advanced research).
+Wang. Quicksilver: Efficient and affordable zero-
+[43] Jesper Buus Nielsen, Peter Sebastian Nordholt, Claudio knowledge proofs for circuits and polynomials over any
+Orlandi, and Sai Sheshank Burra. A new approach to field. In ACM Conf. on Computer and Communications
+practical active-secure two-party computation. In Ad- Security (CCS) 2021. ACM Press, 2021.
+vances in Cryptology—Crypto 2012, volume 7417 of
+[55] Kang Yang, Chenkai Weng, Xiao Lan, Jiang Zhang, and
+LNCS, pages 681–700. Springer, 2012.
+Xiao Wang. Ferret: Fast extension for correlated OT
+[44] Bryan Parno, Jon Howell, Craig Gentry, and Mariana with small communication. In ACM Conf. on Computer
+Raykova. Pinocchio: Nearly practical verifiable compu- and Communications Security (CCS) 2020, pages 1607–
+tation. In IEEE Symp. Security and Privacy 2013, pages 1626. ACM Press, 2020.
+238–252. IEEE, 2013.
+[56] Greg Zaverucha, Melissa Chase, David Derler, Steven
+[45] Dragos Rotaru and Tim Wood. MArBled circuits: Mix- Goldfeder, Claudio Orlandi, Sebastian Ramacher,
+ing arithmetic and Boolean circuits with active secu- Christian Rechberger, Daniel Slamanig, Jonathan
+rity. In Progress in Cryptology—Indocrypt 2019, LNCS, Katz, Xiao Wang, and Vladmir Kolesnikov. Picnic.
+pages 227–249. Springer, 2019. Technical report, National Institute of Standards and
+Technology, 2019. available at https://csrc.nist.
+[46] Phillipp Schoppmann, Adrià Gascón, Leonie Reichert,
+gov/projects/post-quantum-cryptography/
+and Mariana Raykova. Distributed vector-OLE: Im-
+round-2-submissions.
+proved constructions and implementation. In ACM Conf.
+on Computer and Communications Security (CCS) 2019, [57] Jiaheng Zhang, Zhiyong Fang, Yupeng Zhang, and
+pages 1055–1072. ACM Press, 2019. Dawn Song. Zero knowledge proofs for decision tree
+predictions and accuracy. In ACM Conf. on Computer
+[47] Srinath Setty. Spartan: Efficient and general-purpose
+and Communications Security (CCS) 2020, pages 2039–
+zkSNARKs without trusted setup. In Advances in
+2053. ACM Press, 2020.
+Cryptology—Crypto 2020, Part III, LNCS, pages 704–
+737. Springer, 2020.
+518 30th USENIX Security Symposium USENIX Association
