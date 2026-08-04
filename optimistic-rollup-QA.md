@@ -248,6 +248,80 @@ finalized：
 
 因此，L2 的最终可信性主要来自 L1 数据可用性、derivation 规则和证明/挑战机制，而不是 L2 自己先独立完成一套完整共识。
 
+### 4.3 诚实 L2 节点为什么会得到同样结果
+
+诚实 L2 节点输出一致，靠的不是对 sequencer 刚出的 unsafe block 投票，而是大家使用同一组输入和同一套确定性规则。
+
+可以写成一个公式：
+
+```text
+canonical L2 chain = f(
+  canonical L1 data,
+  rollup config,
+  derivation rules,
+  execution rules,
+  previous L2 state
+)
+```
+
+其中：
+
+```text
+canonical L1 data：
+Ethereum L1 共识选中的主链数据，包括 batcher tx、deposit event、L1 block attributes。
+
+rollup config：
+chain id、genesis / hardfork 配置、batch inbox address、batcher address、
+L2 block time、max sequencer drift、system config 等。
+
+derivation rules：
+如何从 L1 block 中读取 batcher tx / deposit，
+如何解析 frame / channel / batch，
+如何构造 payload attributes。
+
+execution rules：
+op-geth / EVM 如何执行交易、更新账户状态、生成 receipt 和 state root。
+
+previous L2 state：
+从哪个已知 L2 状态继续执行。
+```
+
+只要这些输入和规则一致，执行又是确定性的，诚实节点就应该得到同一组结果：
+
+```text
+同一个 L2 block
+同一个 L2 state root
+同一个 output root
+```
+
+sequencer 提供的是快速版本：
+
+```text
+sequencer unsafe block
+```
+
+后续 rollup node 会检查这个 unsafe block 是否匹配从 canonical L1 数据推导出的 payload attributes。
+
+如果匹配：
+
+```text
+unsafe -> safe
+```
+
+如果不匹配：
+
+```text
+诚实节点丢弃 / 重组这个 unsafe view
+从 L1 数据推导出正确 safe chain
+```
+
+所以更精确地说，L2 “共识”的不是 sequencer 口头广播的块，而是：
+
+```text
+在 canonical L1 数据和 rollup 规则给定时，
+唯一正确的 canonical L2 chain 是哪一条。
+```
+
 ### L1 到 L2
 
 这叫 deposit：
